@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login — Navi Aperte CMA CGM</title>
+<style>
+    :root {
+        --primary: #002B5C;
+        --accent: #E87722;
+        --bg: #f0f2f5;
+        --white: #ffffff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+        font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        background: var(--bg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        color: #333;
+    }
+    .login-card {
+        background: var(--white);
+        padding: 40px;
+        border-radius: 12px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        width: 100%;
+        max-width: 400px;
+        text-align: center;
+    }
+    .logo {
+        font-size: 2rem;
+        font-weight: bold;
+        color: var(--primary);
+        margin-bottom: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+    }
+    .logo-icon {
+        color: var(--accent);
+    }
+    h1 {
+        font-size: 1.2rem;
+        margin-bottom: 20px;
+        color: #555;
+    }
+    .form-group {
+        text-align: left;
+        margin-bottom: 20px;
+    }
+    label {
+        display: block;
+        font-size: 0.9rem;
+        margin-bottom: 8px;
+        color: #666;
+    }
+    input {
+        width: 100%;
+        padding: 12px 15px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        font-size: 1rem;
+        transition: border-color 0.2s;
+    }
+    input:focus {
+        outline: none;
+        border-color: var(--primary);
+    }
+    .btn-login {
+        width: 100%;
+        padding: 12px;
+        background: var(--primary);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 1rem;
+        font-weight: bold;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    .btn-login:hover {
+        background: #001f42;
+    }
+    .error-msg {
+        background: #fdecea;
+        color: #c62828;
+        padding: 10px;
+        border-radius: 6px;
+        margin-bottom: 20px;
+        font-size: 0.85rem;
+    }
+    .footer {
+        margin-top: 30px;
+        font-size: 0.75rem;
+        color: #999;
+    }
+</style>
+</head>
+<body>
+
+<div class="login-card">
+    <div class="logo">
+        <span class="logo-icon">&#x1F6A2;</span>
+        <span>CMA CGM</span>
+    </div>
+    <h1>Navi Aperte Dashboard</h1>
+    
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <div class="error-msg">
+          {{ messages[0] }}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <form method="POST">
+        <div class="form-group">
+            <label for="username">User ID</label>
+            <input type="text" id="username" name="username" required autofocus>
+        </div>
+        <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required>
+        </div>
+        <button type="submit" class="btn-login">Login</button>
+    </form>
+
+    <div class="footer">
+        &copy; 2026 CMA CGM Italy - Terminal Monitoring
+    </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Navi Aperte — CMA CGM</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  /* CSS embedded in the original code */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; background: #f0f2f5; color: #333; }
+
+  /* ---- Header ---- */
+  .header {
+    background: #002B5C; color: #fff;
+    padding: 14px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+    box-shadow: 0 2px 8px rgba(0,0,0,.35);
+  }
+  .header-title { font-size: 1.35rem; font-weight: bold; letter-spacing: .5px; }
+  .header-sub   { font-size: .75rem; opacity: .7; margin-top: 3px; }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+
+  /* ---- Refresh button ---- */
+  .btn-refresh {
+    background: #E87722; color: #fff; border: none;
+    padding: 9px 20px; border-radius: 4px;
+    font-size: .9rem; font-weight: bold; cursor: pointer;
+    transition: background .15s;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .btn-refresh:hover    { background: #cf6510; }
+  .btn-refresh:disabled { background: #aaa; cursor: not-allowed; }
+
+  /* ---- Logout btn ---- */
+  .btn-logout {
+    background: transparent; color: #fff; border: 1px solid rgba(255,255,255,0.3);
+    padding: 7px 15px; border-radius: 4px; font-size: 0.8rem; cursor: pointer;
+    text-decoration: none; transition: 0.2s;
+  }
+  .btn-logout:hover { background: rgba(255,255,255,0.1); }
+
+  /* ---- Spinner ---- */
+  .spinner {
+    display: none; width: 18px; height: 18px;
+    border: 3px solid rgba(255,255,255,.3);
+    border-top-color: #fff; border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---- Grid ---- */
+  .grid {
+    display: grid; grid-template-columns: 1fr;
+    gap: 18px; padding: 20px;
+    max-width: 1440px; margin: 0 auto;
+  }
+
+  /* ---- Port card ---- */
+  .port-card {
+    background: #fff; border-radius: 8px; overflow: hidden;
+    box-shadow: 0 2px 6px rgba(0,0,0,.09);
+  }
+
+  /* ---- Port header ---- */
+  .port-header {
+    background: #002B5C; color: #fff;
+    padding: 11px 16px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .port-name { font-size: .95rem; font-weight: bold; }
+  .port-code { font-size: .7rem; opacity: .65; margin-top: 1px; }
+  .port-total {
+    background: #E87722; color: #fff;
+    border-radius: 12px; padding: 2px 11px; font-size: .82rem; font-weight: bold;
+  }
+
+  /* ---- Counters ---- */
+  .counters {
+    display: flex; flex-wrap: wrap; gap: 10px;
+    padding: 8px 14px; background: #f8f9fb;
+    border-bottom: 1px solid #eee; font-size: .8rem;
+  }
+
+  /* ---- Error banner ---- */
+  .error-banner {
+    background: #fdecea; color: #c62828;
+    padding: 7px 14px; font-size: .8rem;
+    border-left: 4px solid #c62828;
+  }
+
+  /* ---- Table ---- */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+  th {
+    background: #e8edf2; color: #002B5C;
+    padding: 7px 10px; text-align: left;
+    font-weight: bold; white-space: nowrap;
+    border-bottom: 2px solid #c8d3de;
+  }
+  td { padding: 6px 10px; border-bottom: 1px solid #f0f0f0; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: #f5f8ff; }
+
+  /* ---- Row states ---- */
+  tr.row-new td { background: #f0fff4 !important; }
+
+  /* ---- Semaphore ---- */
+  .g  { color: #1b7e34; font-weight: bold; }
+  .o  { color: #E87722; font-weight: bold; }
+  .r  { color: #c62828; font-weight: bold; }
+  .gr { color: #aaa; }
+
+  /* ---- Change indicator ---- */
+  .changed {
+    outline: 2px solid #E87722;
+    border-radius: 3px; padding: 0 3px; cursor: help;
+  }
+  .badge-new {
+    background: #e8f5e9; color: #1b7e34;
+    font-size: .65rem; padding: 1px 5px;
+    border-radius: 3px; margin-left: 5px;
+    font-weight: bold; vertical-align: middle;
+  }
+  .bell { font-size: .75rem; margin-left: 2px; }
+
+  /* ---- Mappa Italia ---- */
+  .map-wrap {
+    max-width: 1440px; margin: 16px auto 0; padding: 0 20px;
+  }
+  .map-card {
+    background: #fff; border-radius: 8px; overflow: hidden;
+    box-shadow: 0 2px 6px rgba(0,0,0,.09);
+  }
+  .map-card-header {
+    background: #002B5C; color: #fff;
+    padding: 10px 16px; font-size: .9rem; font-weight: bold;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  #italy-map { height: 380px; width: 100%; }
+
+  .port-marker {
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-weight: bold; color: #fff; border: 2px solid #fff;
+    box-shadow: 0 1px 5px rgba(0,0,0,.45); cursor: pointer;
+    font-size: 12px; line-height: 1;
+  }
+
+  .region-wrap { margin-bottom: 4px; }
+  .region-header {
+    max-width: 1440px; margin: 18px auto 6px; padding: 0 20px;
+    font-size: .8rem; font-weight: bold; letter-spacing: .8px;
+    text-transform: uppercase; color: #002B5C;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .region-header::after {
+    content: ''; flex: 1; height: 1px; background: #c8d3de;
+  }
+  .empty { padding: 18px; text-align: center; color: #aaa; font-style: italic; font-size: .82rem; }
+  .loading { padding: 18px; text-align: center; color: #666; font-size: .82rem; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <div class="header-title">&#x1F6A2; NAVI APERTE &mdash; CMA CGM Italy</div>
+    <div class="header-sub" id="last-update">Aggiorna per i dati più recenti</div>
+  </div>
+  <div class="header-right">
+    <div class="spinner" id="spinner"></div>
+    <button class="btn-refresh" id="btn-refresh" onclick="doRefresh()">
+      &#x1F504; Aggiorna dati
+    </button>
+    <a href="/logout" class="btn-logout">Logout</a>
+  </div>
+</div>
+
+<div class="map-wrap">
+  <div class="map-card">
+    <div class="map-card-header">
+      &#x1F5FA;&#xFE0F; Mappa Accettazione Porti
+    </div>
+    <div id="italy-map"></div>
+  </div>
+</div>
+
+{% for group in port_groups %}
+<div class="region-wrap">
+  <div class="region-header">{{ group.label }}</div>
+  <div class="grid">
+  {% for p in group.ports %}
+  <div class="port-card" id="card-{{ p.key }}">
+    <div class="port-header">
+      <div>
+        <div class="port-name">{{ p.name }}</div>
+        <div class="port-code">{{ p.code }}</div>
+      </div>
+      <div class="port-total" id="total-{{ p.key }}">–</div>
+    </div>
+    <div class="counters" id="ctrs-{{ p.key }}">
+      <span>&#x23F3; In attesa&hellip;</span>
+    </div>
+    <div id="body-{{ p.key }}">
+      <div class="loading">Recupero dati&hellip;</div>
+    </div>
+  </div>
+  {% endfor %}
+  </div>
+</div>
+{% endfor %}
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const PORTS = {{ ports_json | safe }};
+
+/* ---- Mappa Italia ---- */
+const PORT_COORDS = {
+  GENOVA_PSA:  [44.413, 8.920],
+  SPINELLI:    [44.406, 8.927],
+  GENOVA_SECH: [44.409, 8.912],
+  LA_SPEZIA:   [44.104, 9.831],
+  LIVORNO:     [43.548, 10.308],
+  VENEZIA:     [45.430, 12.340],
+  TRIESTE:     [45.649, 13.802],
+  NAPOLI:      [40.841, 14.268],
+  SALERNO:     [40.692, 14.771],
+};
+
+const _map = L.map('italy-map', { zoomControl: true }).setView([42.5, 12.5], 6);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap',
+  maxZoom: 18,
+}).addTo(_map);
+
+const _markers = {};
+
+function _makeMarkerIcon(count, severity) {
+  const bg = severity === 'ok' ? '#1b7e34' : severity === 'none' ? '#999' : '#002B5C';
+  const size = count > 0 ? 34 : 28;
+  return L.divIcon({
+    className: '',
+    html: `<div class="port-marker" style="width:${size}px;height:${size}px;background:${bg}">${count > 0 ? count : '&#10003;'}</div>`,
+    iconSize: [size, size],
+    iconAnchor: [size/2, size/2],
+  });
+}
+
+PORTS.forEach(p => {
+  const coords = PORT_COORDS[p.key];
+  if (!coords) return;
+  const marker = L.marker(coords, { icon: _makeMarkerIcon(0, 'none') })
+    .addTo(_map)
+    .bindPopup(`<b>${p.name}</b>`);
+  marker.on('click', () => document.getElementById('card-' + p.key).scrollIntoView({ behavior: 'smooth' }));
+  _markers[p.key] = marker;
+});
+
+function updateMapMarkers(portsData) {
+  PORTS.forEach(p => {
+    const marker = _markers[p.key];
+    if (!marker) return;
+    const res = portsData[p.key];
+    const rows = (res && !res.error) ? res.data : [];
+    marker.setIcon(_makeMarkerIcon(rows.length, rows.length > 0 ? 'ok' : 'none'));
+    marker.setPopupContent(`<b>${p.name}</b><br>${rows.length} navi trovate`);
+  });
+}
+
+function parseDate(s) {
+  if (!s) return null;
+  let t = s.trim().replace(' - ', ' ').replace(/^(\d{2})\/(\d{2})\/(\d{4})/, '$3-$2-$1').replace(/^(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1').replace(' ', 'T');
+  const d = new Date(t);
+  return isNaN(d) ? null : d;
+}
+function fmtDate(s) {
+  const d = parseDate(s);
+  if (!d) return s || '—';
+  return d.toLocaleString('it-IT', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+}
+function semClass(s) {
+  const d = parseDate(s);
+  if (!d) return 'gr';
+  const h = (d - Date.now()) / 3600000;
+  if (h < 0) return 'r';
+  if (h < 24) return 'o';
+  return 'g';
+}
+
+function dateCell(val, changes, field) {
+  const v = fmtDate(val);
+  const cls = semClass(val);
+  const chg = changes && changes[field];
+  const bell = chg ? '<span class="bell">&#x1F514;</span>' : '';
+  const chgAttr = chg ? ` title="Era: ${fmtDate(chg)}" class="${cls} changed"` : ` class="${cls}"`;
+  return `<td><span${chgAttr}>${v}${bell}</span></td>`;
+}
+
+function buildTable(rows) {
+  if (!rows || rows.length === 0) return '<div class="empty">Nessuna nave disponibile</div>';
+  const ths = ['Nave','Viaggio','ETA','Accettazione','Scadenza Accettazione','Chiusura Dogana'].map(h => `<th>${h}</th>`).join('');
+  const trs = rows.map(r => {
+    const chg = r.changes || {};
+    const badge = r.is_new ? '<span class="badge-new">NEW</span>' : '';
+    return `<tr${r.is_new ? ' class="row-new"' : ''}>
+      <td><b>${r.nave || '—'}</b>${badge}</td>
+      <td>${r.viaggio || '—'}</td>
+      ${dateCell(r.eta, chg, 'eta')}
+      ${dateCell(r.accettazione, chg, 'accettazione')}
+      ${dateCell(r.fine_accettazione, chg, 'fine_accettazione')}
+      ${dateCell(r.chiusura, chg, 'chiusura')}
+    </tr>`;
+  }).join('');
+  return `<div class="table-wrap"><table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table></div>`;
+}
+
+function renderPort(key, res) {
+  const totalEl = document.getElementById('total-' + key);
+  const ctrsEl = document.getElementById('ctrs-' + key);
+  const bodyEl = document.getElementById('body-' + key);
+  if (res.error) {
+    const stale = res.stale_data || [];
+    totalEl.textContent = stale.length ? stale.length + ' (!)' : '–';
+    ctrsEl.innerHTML = `<span style="color:#c62828">⚠️ ${res.message}</span>`;
+    bodyEl.innerHTML = `<div class="error-banner">Dati del sito non raggiungibili. Mostrati dati precedenti.</div>` + buildTable(stale);
+    return;
+  }
+  const rows = res.data || [];
+  let open = 0, soon = 0, expired = 0, now = Date.now();
+  rows.forEach(r => {
+    const d = parseDate(r.fine_accettazione || r.accettazione || r.eta);
+    if (!d) open++;
+    else {
+      const h = (d - now) / 3600000;
+      if (h < 0) expired++; else if (h < 24) soon++; else open++;
+    }
+  });
+  totalEl.textContent = rows.length;
+  ctrsEl.innerHTML = `<span>✅ Aperte: <b>${open}</b></span><span>⚠️ Scadono a breve: <b>${soon}</b></span><span style="color:#c62828">🔴 Scadute: <b>${expired}</b></span>`;
+  bodyEl.innerHTML = buildTable(rows);
+}
+
+function doRefresh() {
+  const btn = document.getElementById('btn-refresh');
+  const spinner = document.getElementById('spinner');
+  btn.disabled = true; spinner.style.display = 'inline-block';
+  fetch('/refresh')
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('last-update').textContent = 'Ultimo aggiornamento: ' + new Date(data.timestamp).toLocaleString();
+      PORTS.forEach(p => { if (data.ports[p.key]) renderPort(p.key, data.ports[p.key]); });
+      updateMapMarkers(data.ports);
+    })
+    .catch(err => console.error(err))
+    .finally(() => { btn.disabled = false; spinner.style.display = 'none'; });
+}
+
+document.addEventListener('DOMContentLoaded', doRefresh);
+</script>
+</body>
+</html>
