@@ -93,7 +93,7 @@ def _fetch_html_browser(url: str, *, wait_selector: str | None = None) -> str | 
         try:
             driver.get(url)
             if wait_selector:
-                WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CSS_SELECTOR, wait_selector)))
+                WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, wait_selector)))
             return driver.page_source
         finally:
             driver.quit()
@@ -396,9 +396,9 @@ SCRAPERS = {
     "VENEZIA":    scrape_venezia,
     "LA_SPEZIA":  lambda: scrape_js_port("https://services.contshipitalia.com/it/reports/vessel-acceptance-report.html?terminal=LSCT", "table#open-vessel-voyages", "La Spezia", "ITSPE", map_lsz),
     "TRIESTE":    lambda: scrape_js_port("https://www.trieste-marine-terminal.com/it/content/navi-banchina-arrivi-e-partenze", "table.table-hover", "Trieste", "ITTRS", map_trieste),
-    "SALERNO":    scrape_salerno,
-    "GENOVA_SECH": scrape_sech,
-    "SAN_GIORGIO": scrape_san_giorgio,
+    "SALERNO":    lambda: {"error": True, "message": "Temporaneamente disabilitato (memoria insufficiente)", "data": []},
+    "GENOVA_SECH": lambda: {"error": True, "message": "Temporaneamente disabilitato (memoria insufficiente)", "data": []},
+    "SAN_GIORGIO": lambda: {"error": True, "message": "Temporaneamente disabilitato (memoria insufficiente)", "data": []},
 }
 
 # ---------------------------------------------------------------------------
