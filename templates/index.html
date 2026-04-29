@@ -137,6 +137,17 @@ function dateCell(val) {
   return `<td><span class="${cls}">${val}</span></td>`;
 }
 
+const FIELD_LABELS = {
+  nave: 'Nave', viaggio: 'Viaggio', servizio: 'Servizio',
+  eta: 'ETA', etb: 'ETB', etd: 'ETD',
+  accettazione: 'Accettazione', fine_accettazione: 'Fine Acc.',
+  chiusura: 'Chiusura', reefer: 'Reefer', imo: 'IMO', status: 'Stato'
+};
+const FIELD_ORDER = ['nave','viaggio','servizio','eta','etb','etd',
+                     'accettazione','fine_accettazione','chiusura','reefer','imo','status'];
+const SKIP_FIELDS = new Set(['porto','port_code','is_new']);
+const DATE_FIELDS = new Set(['eta','etb','etd','accettazione','fine_accettazione','chiusura']);
+
 function renderTable(key, result) {
   const body = document.getElementById('body-' + key);
   if (result.error) {
@@ -149,27 +160,32 @@ function renderTable(key, result) {
     return;
   }
 
-  // Aggiorna contatore nella card header
-  const totalEl = document.getElementById('total-' + key);
-  if (totalEl) totalEl.textContent = rows.length;
+  // Raccogli tutti i campi presenti nei dati, nell'ordine preferito
+  const present = new Set();
+  rows.forEach(r => Object.keys(r).forEach(k => { if (!SKIP_FIELDS.has(k)) present.add(k); }));
+  const fields = FIELD_ORDER.filter(f => present.has(f));
+  // Aggiungi eventuali campi sconosciuti non in FIELD_ORDER
+  present.forEach(f => { if (!FIELD_ORDER.includes(f)) fields.push(f); });
 
-  const heads = ['Nave','Viaggio','Servizio','ETA','Accettazione','Fine Acc.','Chiusura'];
   let html = '<div style="overflow-x:auto"><table><thead><tr>'
-    + heads.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
+    + fields.map(f => `<th>${FIELD_LABELS[f] || f}</th>`).join('') + '</tr></thead><tbody>';
 
   rows.forEach(r => {
     const isNew = r.is_new;
     const rowStyle = isNew ? ' style="background:#f0fff4"' : '';
-    const badge = isNew ? ' <span style="background:#e8f5e9;color:#1b7e34;font-size:.65rem;padding:1px 5px;border-radius:3px;font-weight:bold">NEW</span>' : '';
-    html += `<tr${rowStyle}>
-      <td><b>${r.nave || '—'}</b>${badge}</td>
-      <td style="color:#555">${r.viaggio || '—'}</td>
-      <td style="color:#555">${r.servizio || '—'}</td>
-      ${dateCell(r.eta)}
-      ${dateCell(r.accettazione)}
-      ${dateCell(r.fine_accettazione)}
-      ${dateCell(r.chiusura)}
-    </tr>`;
+    html += `<tr${rowStyle}>`;
+    fields.forEach((f, i) => {
+      const val = r[f];
+      if (f === 'nave') {
+        const badge = isNew ? ' <span style="background:#e8f5e9;color:#1b7e34;font-size:.65rem;padding:1px 5px;border-radius:3px;font-weight:bold">NEW</span>' : '';
+        html += `<td><b>${val || '—'}</b>${badge}</td>`;
+      } else if (DATE_FIELDS.has(f)) {
+        html += dateCell(val);
+      } else {
+        html += `<td style="color:#555">${val || '—'}</td>`;
+      }
+    });
+    html += '</tr>';
   });
 
   html += '</tbody></table></div>';
