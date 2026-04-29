@@ -232,7 +232,7 @@ function loadPositions() {
   aisVisible = !aisVisible;
   if (aisVisible) {
     if (!frame.src || frame.src === window.location.href) {
-      frame.src = 'https://www.vesselfinder.com/aismap?lat=42.5&lng=12.5&zoom=6&width=100%25&height=480&names=1&fleet=0';
+      frame.src = 'https://www.marinetraffic.com/en/ais/embed/zoom:6/centery:42.5/centerx:12.5/maptype:4/shownames:true/mmsi:0/shipid:0/fleet:/fleet_id:/vtypes:/showmenu:/remember:false';
     }
     wrap.style.display = 'block';
     btn.textContent = '🗺️ Nascondi AIS';
