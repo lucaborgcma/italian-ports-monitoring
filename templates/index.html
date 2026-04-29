@@ -341,19 +341,50 @@ function renderPort(key, res) {
   bodyEl.innerHTML = buildTable(rows);
 }
 
-function doRefresh() {
+async function doRefresh() {
   const btn = document.getElementById('btn-refresh');
   const spinner = document.getElementById('spinner');
-  btn.disabled = true; spinner.style.display = 'inline-block';
-  fetch('/refresh')
-    .then(r => r.json())
-    .then(data => {
-      document.getElementById('last-update').textContent = 'Ultimo aggiornamento: ' + new Date(data.timestamp).toLocaleString();
-      PORTS.forEach(p => { if (data.ports[p.key]) renderPort(p.key, data.ports[p.key]); });
-      updateMapMarkers(data.ports);
-    })
-    .catch(err => console.error(err))
-    .finally(() => { btn.disabled = false; spinner.style.display = 'none'; });
+  btn.disabled = true; 
+  spinner.style.display = 'inline-block';
+  
+  try {
+    const r = await fetch('/refresh');
+    const data = await r.json();
+    const portKeys = data.ports || [];
+    
+    // Reset all cards to "Recupero dati..."
+    portKeys.forEach(k => {
+      const body = document.getElementById('body-' + k);
+      if (body) body.innerHTML = '<div class="loading">Recupero dati&hellip;</div>';
+    });
+
+    // Fetch each port sequentially to save memory and avoid timeouts
+    for (const key of portKeys) {
+      try {
+        console.log("Refresing port: " + key);
+        const pr = await fetch('/refresh/' + key);
+        const pdata = await pr.json();
+        renderPort(pdata.key, pdata.result);
+        if (pdata.timestamp) {
+           document.getElementById('last-update').textContent = 'Ultimo aggiornamento: ' + new Date(pdata.timestamp).toLocaleString();
+        }
+        // Update map for this port
+        const portObj = {};
+        portObj[pdata.key] = pdata.result;
+        updateMapMarkers(portObj);
+        
+        // Pausa di 2 secondi per far respirare la RAM di Render (fondamentale per Selenium)
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } catch (e) {
+        console.error("Error refreshing port " + key, e);
+      }
+    }
+  } catch (err) {
+    console.error("General refresh error", err);
+  } finally {
+    btn.disabled = false; 
+    spinner.style.display = 'none';
+  }
 }
 
 document.addEventListener('DOMContentLoaded', doRefresh);

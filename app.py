@@ -73,33 +73,69 @@ log = logging.getLogger(__name__)
 # Selenium Helper (per porti JS)
 # ---------------------------------------------------------------------------
 def _fetch_html_browser(url: str, *, wait_selector: str | None = None) -> str | None:
+    """Fetch HTML using Selenium, optimized for low-memory environments like Render."""
     try:
         from selenium import webdriver
         from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.chrome.service import Service
         from selenium.webdriver.support.ui import WebDriverWait
         from selenium.webdriver.support import expected_conditions as EC
         from selenium.webdriver.common.by import By
-    except ImportError:
+        from webdriver_manager.chrome import ChromeDriverManager
+    except ImportError as e:
+        log.error(f"Missing Selenium dependencies: {e}")
         return None
+
+    driver = None
     try:
         opts = Options()
         opts.add_argument("--headless=new")
-        opts.add_argument("--ignore-certificate-errors")
-        opts.add_argument("--ignore-ssl-errors")
         opts.add_argument("--no-sandbox")
         opts.add_argument("--disable-dev-shm-usage")
+        opts.add_argument("--disable-gpu")
+        opts.add_argument("--disable-extensions")
+        opts.add_argument("--single-process")
+        opts.add_argument("--disable-dev-tools")
         opts.add_argument("--log-level=3")
-        driver = webdriver.Chrome(options=opts)
-        try:
-            driver.get(url)
-            if wait_selector:
-                WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, wait_selector)))
-            return driver.page_source
-        finally:
-            driver.quit()
+        opts.add_argument("--blink-settings=imagesEnabled=false")
+        
+        # Configurazione percorso Chrome per Render
+        chrome_bin = os.path.join(os.getcwd(), "chrome-bin", "opt", "google", "chrome", "google-chrome")
+        chrome_version = None
+        
+        if os.path.exists(chrome_bin):
+            opts.binary_location = chrome_bin
+            try:
+                import subprocess
+                v_out = subprocess.check_output([chrome_bin, "--version"]).decode("utf-8")
+                chrome_version = v_out.split()[-1]
+            except: pass
+        elif os.path.exists("/usr/bin/google-chrome"):
+            opts.binary_location = "/usr/bin/google-chrome"
+
+        driver_path = ChromeDriverManager(driver_version=chrome_version).install()
+        service = Service(driver_path)
+        driver = webdriver.Chrome(service=service, options=opts)
+        driver.set_page_load_timeout(60) # Aumentato a 60s
+        
+        driver.get(url)
+        if wait_selector:
+            # Attesa più lunga per Render
+            WebDriverWait(driver, 45).until(EC.presence_of_element_located((By.CSS_SELECTOR, wait_selector)))
+        
+        # Aspettiamo altri 2 secondi per sicurezza dopo il caricamento del selettore
+        import time
+        time.sleep(2)
+        
+        return driver.page_source
     except Exception as e:
         log.error(f"Selenium error {url}: {e}")
         return None
+    finally:
+        if driver:
+            try:
+                driver.quit()
+            except: pass
 
 # ---------------------------------------------------------------------------
 # Auth, State & Date Helpers
@@ -116,9 +152,12 @@ def load_last_state() -> dict:
     except: pass
     return {}
 
+STATE_LOCK = threading.RLock()
+
 def save_state(state: dict) -> None:
-    try: STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-    except: pass
+    with STATE_LOCK:
+        try: STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        except: pass
 
 def detect_changes(new_rows: list, old_rows: list) -> list:
     DATE_FIELDS = {"eta", "accettazione", "fine_accettazione", "chiusura", "etd"}
@@ -254,7 +293,7 @@ def scrape_napoli() -> dict:
 def scrape_venezia() -> dict:
     url = "https://www.vecon.it/tools/info-nave-partenze-arrivi/"
     html = _fetch_html(url)
-    if not html: return {"error": True, "message": "Errore connessione", "data": []}
+    if not html: return {"error": True, "message": "Errore connessione Venezia", "data": []}
     try:
         soup = BeautifulSoup(html, "html.parser")
         table = soup.find("table")
@@ -266,51 +305,83 @@ def scrape_venezia() -> dict:
         return {"error": False, "data": data}
     except Exception as e: return {"error": True, "message": str(e), "data": []}
 
-def scrape_salerno() -> dict:
-    url = "https://www.salernocontainerterminal.com/ca/an/vessel_schedule.php"
-    html = _fetch_html_browser(url, wait_selector="table#tbanavi")
-    if not html: return {"error": True, "message": "Errore connessione Salerno (Selenium)", "data": []}
+def scrape_trieste() -> dict:
+    url = "https://www.trieste-marine-terminal.com/it/content/navi-banchina-arrivi-e-partenze"
+    # Trieste a volte blocca se non vede un browser reale
+    html = _fetch_html(url)
+    if not html: return {"error": True, "message": "Errore connessione Trieste", "data": []}
     try:
         soup = BeautifulSoup(html, "html.parser")
-        table = soup.select_one("table#tbanavi")
+        table = soup.find("table", class_="table-hover")
+        if not table:
+            # Tenta di cercare qualsiasi tabella se quella specifica non c'è
+            table = soup.find("table")
         if not table: return {"error": False, "data": []}
         rows = table.find_all("tr")
         if len(rows) < 2: return {"error": False, "data": []}
+        
+        headers = [td.get_text(strip=True) for td in rows[0].find_all(["th", "td"])]
+        col = {h: i for i, h in enumerate(headers)}
+        
+        data = []
+        for tr in rows[1:]:
+            cells = [td.get_text(strip=True) for td in tr.find_all("td")]
+            if len(cells) < 4: continue
+            data.append({
+                "nave": cells[col["Vessel"]] if "Vessel" in col else cells[0],
+                "viaggio": cells[col["Viaggio"]] if "Viaggio" in col else cells[1],
+                "eta": cells[col["ETB"]] if "ETB" in col else cells[2],
+                "accettazione": cells[col["Begin Rcv"]] if "Begin Rcv" in col else cells[3],
+                "porto": "Trieste",
+                "port_code": "ITTRS"
+            })
+        return {"error": False, "data": data}
+    except Exception as e: return {"error": True, "message": f"Parsing Trieste: {e}", "data": []}
+
+def scrape_salerno() -> dict:
+    # Salerno può essere scaricato via POST simulando il form
+    url = "https://www.salernocontainerterminal.com/ca/an/vessel_schedule.php"
+    try:
+        # Spesso questi siti caricano i dati via POST anche se la pagina è GET
+        resp = requests.get(url, headers=HTTP_HEADERS, timeout=HTTP_TIMEOUT, verify=False)
+        if not resp.text: return {"error": True, "message": "Nessuna risposta da Salerno", "data": []}
+        
+        soup = BeautifulSoup(resp.text, "html.parser")
+        table = soup.select_one("table#tbanavi")
+        if not table:
+            # Se non c'è la tabella, forse serve Selenium o un altro approccio
+            # Ma proviamo a vedere se i dati sono in un commento o script
+            return {"error": True, "message": "Tabella Salerno non trovata nell'HTML", "data": []}
+            
+        rows = table.find_all("tr")
         headers = [th.get_text(strip=True) for th in rows[0].find_all(["th", "td"])]
         col = {h: i for i, h in enumerate(headers)}
-        status_key = next((h for h in headers if "STATUS" in h.upper()), None)
         data = []
         for tr in rows[1:]:
             tds = tr.find_all("td")
-            if len(tds) == 1: continue
+            if len(tds) < 2: continue
             cells = [td.get_text(strip=True) for td in tds]
-            if not cells: continue
-            def gc(name, c=cells): return (c[col[name]] or None) if name in col and col[name] < len(c) else None
-            nave = gc("VESSEL")
-            if not nave: continue
-            reef = gc("ACCEPTANCE REEF") or ""
-            if reef.strip(): continue
+            nave = cells[col["VESSEL"]] if "VESSEL" in col else cells[0]
+            if not nave or "VESSEL" in nave: continue
             data.append({
                 "nave": nave,
-                "viaggio": gc("VOYAGE"),
-                "eta": gc("E.T.A."),
-                "fine_accettazione": gc("CLOSING TIME"),
-                "status": gc(status_key) if status_key else None,
-                "accettazione": None,
-                "chiusura": None,
+                "viaggio": cells[col["VOYAGE"]] if "VOYAGE" in col else cells[1],
+                "eta": cells[col["E.T.A."]] if "E.T.A." in col else cells[2],
+                "fine_accettazione": cells[col["CLOSING TIME"]] if "CLOSING TIME" in col else cells[3],
                 "porto": "Salerno",
                 "port_code": "ITSAL",
             })
         return {"error": False, "data": data}
-    except Exception as e: return {"error": True, "message": str(e), "data": []}
+    except Exception as e: return {"error": True, "message": f"Salerno: {e}", "data": []}
 
 def scrape_sech() -> dict:
     url = "https://www.sech.it/"
-    html = _fetch_html_browser(url, wait_selector="table.vessels")
+    # PSAFrontend often needs more time and flexible selectors
+    html = _fetch_html_browser(url, wait_selector="table")
     if not html: return {"error": True, "message": "Errore connessione Genova SECH (Selenium)", "data": []}
     try:
         soup = BeautifulSoup(html, "html.parser")
-        table = soup.find("table", class_="vessels")
+        table = soup.find("table")
         if not table: return {"error": False, "data": []}
         rows = table.find_all("tr")
         if len(rows) < 2: return {"error": False, "data": []}
@@ -319,55 +390,48 @@ def scrape_sech() -> dict:
         data = []
         for tr in rows[1:]:
             cells = [td.get_text(strip=True) for td in tr.find_all("td")]
-            if not cells or len(cells) < 2: continue
+            if len(cells) < 2: continue
             def get_cell(col_name): return cells[col_map[col_name]] if col_name in col_map and col_map[col_name] < len(cells) else None
-            nave = get_cell("Nave")
-            if not nave: continue
+            nave = get_cell("Nave") or cells[0]
+            if not nave or "Nave" in nave or nave == "VESSEL": continue
             data.append({
                 "nave": nave,
-                "eta": get_cell("ETA"),
-                "viaggio": get_cell("Voy In Agenzia"),
+                "eta": get_cell("ETA") or cells[1] if len(cells)>1 else None,
+                "viaggio": get_cell("Voy In Agenzia") or cells[2] if len(cells)>2 else None,
                 "service": get_cell("Servizio") or None,
-                "chiusura": get_cell("Chiusura Doganale"),
-                "accettazione": None,
-                "fine_accettazione": None,
+                "chiusura": get_cell("Chiusura Doganale") or cells[4] if len(cells)>4 else None,
                 "porto": "Genova SECH",
                 "port_code": "ITGOA",
             })
         return {"error": False, "data": data}
-    except Exception as e: return {"error": True, "message": str(e), "data": []}
+    except Exception as e: return {"error": True, "message": f"SECH parsing: {e}", "data": []}
 
 def scrape_san_giorgio() -> dict:
     url = "https://www.terminalsangiorgio.it/"
-    html = _fetch_html_browser(url, wait_selector="table.tab-elenco")
+    html = _fetch_html_browser(url, wait_selector="table")
     if not html: return {"error": True, "message": "Errore connessione Terminal San Giorgio (Selenium)", "data": []}
     try:
         soup = BeautifulSoup(html, "html.parser")
         tables = soup.find_all("table", class_="tab-elenco")
-        data_tables = tables[1:]
-        if not data_tables: return {"error": False, "data": []}
+        if not tables: tables = soup.find_all("table")
+        data_tables = tables[1:] if len(tables)>1 else tables
         data = []
         for table in data_tables:
             for tr in table.find_all("tr"):
                 cells = [td.get_text(strip=True) for td in tr.find_all("td")]
-                if len(cells) < 2: continue
-                nave = cells[0] if len(cells) > 0 else None
-                if not nave: continue
-                customs = cells[4] if len(cells) > 4 else None
-                if customs == "-": customs = None
+                if len(cells) < 4: continue
+                nave = cells[0]
+                if not nave or "Nave" in nave or nave == "VESSEL": continue
                 data.append({
                     "nave": nave,
-                    "eta": cells[1] if len(cells) > 1 else None,
-                    "viaggio": cells[2] if len(cells) > 2 else None,
-                    "fine_accettazione": customs,
-                    "accettazione": None,
-                    "chiusura": None,
-                    "status": None,
+                    "eta": cells[1],
+                    "viaggio": cells[2],
+                    "fine_accettazione": cells[4] if len(cells) > 4 else None,
                     "porto": "Genova San Giorgio",
                     "port_code": "ITGOA",
                 })
         return {"error": False, "data": data}
-    except Exception as e: return {"error": True, "message": str(e), "data": []}
+    except Exception as e: return {"error": True, "message": f"San Giorgio parsing: {e}", "data": []}
 
 def scrape_js_port(url, selector, port_name, port_code, mapper_fn):
     html = _fetch_html_browser(url, wait_selector=selector)
@@ -376,6 +440,7 @@ def scrape_js_port(url, selector, port_name, port_code, mapper_fn):
         soup = BeautifulSoup(html, "html.parser")
         return {"error": False, "data": mapper_fn(soup, port_name, port_code)}
     except Exception as e: return {"error": True, "message": str(e), "data": []}
+
 
 def map_lsz(soup, name, code):
     rows = soup.select("table#open-vessel-voyages tbody tr")
@@ -394,16 +459,22 @@ SCRAPERS = {
     "LIVORNO":    scrape_livorno,
     "NAPOLI":     scrape_napoli,
     "VENEZIA":    scrape_venezia,
-    "LA_SPEZIA":  lambda: scrape_js_port("https://services.contshipitalia.com/it/reports/vessel-acceptance-report.html?terminal=LSCT", "table#open-vessel-voyages", "La Spezia", "ITSPE", map_lsz),
     "TRIESTE":    lambda: scrape_js_port("https://www.trieste-marine-terminal.com/it/content/navi-banchina-arrivi-e-partenze", "table.table-hover", "Trieste", "ITTRS", map_trieste),
-    "SALERNO":    lambda: {"error": True, "message": "Temporaneamente disabilitato (memoria insufficiente)", "data": []},
-    "GENOVA_SECH": lambda: {"error": True, "message": "Temporaneamente disabilitato (memoria insufficiente)", "data": []},
-    "SAN_GIORGIO": lambda: {"error": True, "message": "Temporaneamente disabilitato (memoria insufficiente)", "data": []},
+    "LA_SPEZIA":  lambda: scrape_js_port("https://services.contshipitalia.com/it/reports/vessel-acceptance-report.html?terminal=LSCT", "table#open-vessel-voyages", "La Spezia", "ITSPE", map_lsz),
+    "SALERNO":    scrape_salerno,
+    "GENOVA_SECH": scrape_sech,
+    "SAN_GIORGIO": scrape_san_giorgio,
 }
 
 # ---------------------------------------------------------------------------
 # Flask routes
 # ---------------------------------------------------------------------------
+@login_manager.user_loader
+def load_user(user_id): return User(user_id) if user_id == ADMIN_USER else None
+
+class User(UserMixin):
+    def __init__(self, id): self.id = id
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -418,26 +489,45 @@ def logout(): logout_user(); return redirect(url_for('login'))
 
 @app.route('/refresh')
 @login_required
-def refresh():
-    last_state, new_state, results = load_last_state(), {}, {}
-    with ThreadPoolExecutor(max_workers=4) as exec:
-        fut = {exec.submit(fn): key for key, fn in SCRAPERS.items()}
-        for f in as_completed(fut):
-            k = fut[f]
-            try: res = f.result()
-            except Exception as e: res = {"error": True, "message": str(e), "data": []}
-            if res["error"]: results[k] = {"error": True, "message": res.get("message"), "stale_data": last_state.get(k, [])}
-            else:
-                formatted_data = []
-                for row in res["data"]:
-                    row_copy = dict(row)
-                    for fld in ("eta", "accettazione", "fine_accettazione", "chiusura", "etd"):
-                        if row_copy.get(fld): row_copy[fld] = _norm_date_str(row_copy[fld])
-                    formatted_data.append(row_copy)
-                results[k] = {"error": False, "data": detect_changes(formatted_data, last_state.get(k, []))}
-                new_state[k] = formatted_data
-    save_state(new_state)
-    return jsonify({"timestamp": datetime.now(tz=ROME_TZ).isoformat(timespec="seconds"), "ports": results})
+def refresh_all():
+    return jsonify({"ports": [p["key"] for p in PORTS]})
+
+@app.route('/refresh/<key>')
+@login_required
+def refresh_port(key):
+    if key not in SCRAPERS:
+        return jsonify({"error": True, "message": "Porto non trovato"}), 404
+    
+    last_state = load_last_state()
+    fn = SCRAPERS[key]
+    
+    try:
+        res = fn()
+    except Exception as e:
+        res = {"error": True, "message": str(e), "data": []}
+    
+    if res["error"]:
+        result = {"error": True, "message": res.get("message"), "stale_data": last_state.get(key, [])}
+    else:
+        formatted_data = []
+        for row in res["data"]:
+            row_copy = dict(row)
+            for fld in ("eta", "accettazione", "fine_accettazione", "chiusura", "etd"):
+                if row_copy.get(fld): row_copy[fld] = _norm_date_str(row_copy[fld])
+            formatted_data.append(row_copy)
+        
+        result = {"error": False, "data": detect_changes(formatted_data, last_state.get(key, []))}
+        
+        with STATE_LOCK:
+            current_state = load_last_state()
+            current_state[key] = formatted_data
+            save_state(current_state)
+
+    return jsonify({
+        "key": key,
+        "result": result,
+        "timestamp": datetime.now(tz=ROME_TZ).isoformat(timespec="seconds")
+    })
 
 @app.route('/')
 @login_required
@@ -447,4 +537,5 @@ def index():
     return render_template("index.html", port_groups=groups, ports_json=ports_json)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
