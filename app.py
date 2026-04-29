@@ -64,45 +64,22 @@ def _empty_table_error(msg="Sito richiede rendering JS (dati non disponibili)"):
     return {"error": True, "message": msg, "data": []}
 
 def _fetch_html_browser(url, *, wait_selector=None):
-    """Fetch HTML con Chromium headless (Selenium) per pagine JS-rendered."""
-    import shutil
+    """Fetch HTML con Chromium headless (Playwright) per pagine JS-rendered."""
     try:
-        from selenium import webdriver
-        from selenium.webdriver.chrome.options import Options
-        from selenium.webdriver.chrome.service import Service
-        from selenium.webdriver.support.ui import WebDriverWait
-        from selenium.webdriver.support import expected_conditions as EC
-        from selenium.webdriver.common.by import By
+        from playwright.sync_api import sync_playwright
     except ImportError:
-        log.error("selenium non installato")
+        log.error("playwright non installato")
         return None
     try:
-        opts = Options()
-        opts.add_argument("--headless=new")
-        opts.add_argument("--no-sandbox")
-        opts.add_argument("--disable-dev-shm-usage")
-        opts.add_argument("--disable-gpu")
-        opts.add_argument("--ignore-certificate-errors")
-        opts.add_argument("--log-level=3")
-
-        # Trova Chromium e chromedriver ovunque siano installati
-        chromium = (shutil.which("chromium") or shutil.which("chromium-browser")
-                    or "/usr/bin/chromium")
-        chromedriver = shutil.which("chromedriver") or "/usr/bin/chromedriver"
-        log.info(f"Browser: {chromium} | Driver: {chromedriver}")
-
-        opts.binary_location = chromium
-        service = Service(chromedriver)
-        driver = webdriver.Chrome(service=service, options=opts)
-        try:
-            driver.get(url)
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+            page = browser.new_page(ignore_https_errors=True)
+            page.goto(url, timeout=30000)
             if wait_selector:
-                WebDriverWait(driver, 15).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, wait_selector))
-                )
-            return driver.page_source
-        finally:
-            driver.quit()
+                page.wait_for_selector(wait_selector, timeout=15000)
+            html = page.content()
+            browser.close()
+            return html
     except Exception as e:
         log.error(f"Browser error {url}: {e}")
         return None
