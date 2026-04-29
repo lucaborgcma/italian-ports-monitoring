@@ -65,6 +65,7 @@ def _empty_table_error(msg="Sito richiede rendering JS (dati non disponibili)"):
 
 def _fetch_html_browser(url, *, wait_selector=None):
     """Fetch HTML con Chromium headless (Selenium) per pagine JS-rendered."""
+    import shutil
     try:
         from selenium import webdriver
         from selenium.webdriver.chrome.options import Options
@@ -78,14 +79,20 @@ def _fetch_html_browser(url, *, wait_selector=None):
     try:
         opts = Options()
         opts.add_argument("--headless=new")
-        opts.add_argument("--no-sandbox")           # obbligatorio nei container
+        opts.add_argument("--no-sandbox")
         opts.add_argument("--disable-dev-shm-usage")
         opts.add_argument("--disable-gpu")
         opts.add_argument("--ignore-certificate-errors")
         opts.add_argument("--log-level=3")
-        # Chromium installato via apt in Docker
-        opts.binary_location = "/usr/bin/chromium"
-        service = Service("/usr/bin/chromedriver")
+
+        # Trova Chromium e chromedriver ovunque siano installati
+        chromium = (shutil.which("chromium") or shutil.which("chromium-browser")
+                    or "/usr/bin/chromium")
+        chromedriver = shutil.which("chromedriver") or "/usr/bin/chromedriver"
+        log.info(f"Browser: {chromium} | Driver: {chromedriver}")
+
+        opts.binary_location = chromium
+        service = Service(chromedriver)
         driver = webdriver.Chrome(service=service, options=opts)
         try:
             driver.get(url)

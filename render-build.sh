@@ -2,20 +2,13 @@
 # exit on error
 set -o errexit
 
-# Cartella locale per Chrome
-CHROME_DIR=$(pwd)/chrome-bin
-mkdir -p $CHROME_DIR
+echo "... Installazione Chromium e ChromeDriver ..."
+apt-get update -qq
+apt-get install -y -qq chromium chromium-driver || \
+  apt-get install -y -qq chromium-browser chromium-chromedriver
 
-if [[ ! -d $CHROME_DIR/opt/google/chrome ]]; then
-  echo "...Downloading Chrome"
-  cd $CHROME_DIR
-  wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-  dpkg -x google-chrome-stable_current_amd64.deb .
-  rm google-chrome-stable_current_amd64.deb
-  cd -
-else
-  echo "...Chrome already installed"
-fi
+echo "... Chromium: $(which chromium || which chromium-browser || echo 'non trovato') ..."
+echo "... ChromeDriver: $(which chromedriver || echo 'non trovato') ..."
 
-# Install Python dependencies
+# Installa dipendenze Python
 pip install -r requirements.txt
