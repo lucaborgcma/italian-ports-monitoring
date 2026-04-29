@@ -1,7 +1,7 @@
 from __future__ import annotations
 import json, re, time, os, logging, threading, requests, urllib3
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from bs4 import BeautifulSoup
 from flask import Flask, jsonify, render_template, request, redirect, url_for, flash
@@ -202,42 +202,7 @@ def scrape_genova_psa():
         log.error(f"scrape_genova_psa: {e}")
         return {"error": True, "message": str(e), "data": []}
 
-def scrape_spinelli():
-    """Genova Spinelli — genoaterminal.com JSON API pubblica."""
-    url = "https://www.genoaterminal.com/gptPublicService/getvesselsfull"
-    headers = {**HTTP_HEADERS,
-               "Referer": "https://www.genoaterminal.com/showVessels",
-               "Origin":  "https://www.genoaterminal.com",
-               "Accept":  "application/json, text/plain, */*"}
-    try:
-        r = requests.get(url, headers=headers, timeout=15, verify=False)
-        log.info(f"Spinelli: HTTP {r.status_code} ({len(r.text)} bytes)")
-    except Exception as e:
-        log.error(f"scrape_spinelli connessione: {e}")
-        return {"error": True, "message": str(e), "data": []}
-    try:
-        body = r.json()
-    except Exception as e:
-        log.error(f"Spinelli non-JSON ({r.status_code}): {r.text[:300]!r}")
-        return {"error": True, "message": str(e), "data": []}
 
-    v = body.get("IN_ACCETTAZIONE") or []
-    data = []
-    for x in v:
-        nave = x.get("name") or x.get("vesselName") or x.get("vessel")
-        if not nave:
-            continue
-        data.append({
-            "nave":     nave,
-            "viaggio":  x.get("exportVoyCode") or x.get("voyageCode"),
-            "eta":      x.get("eta"),
-            "etd":      x.get("etd"),
-            "chiusura": x.get("customsDeadline"),
-            "servizio": x.get("service") or x.get("lineService"),
-            "porto":    "Genova Spinelli",
-        })
-    log.info(f"Spinelli: {len(data)} navi")
-    return {"error": False, "data": data}
 
 def scrape_livorno():
     try:
@@ -453,7 +418,68 @@ def scrape_salerno():
     except Exception as e:
         log.error(f"scrape_salerno: {e}")
         return {"error": True, "message": str(e), "data": []}
+    
+def scrape_spinelli():
+    """Genova Spinelli — genoaterminal.com
+    API pubblica, nessun WAF su chiamata diretta server-to-server.
+    Restituisce IN_ACCETTAZIONE e PROSSIME_APERTURE.
+    """
+    URL = "https://www.genoaterminal.com/gptPublicService/getvesselsfull"
+    HEADERS = {
+        "Accept": "application/json, text/plain, */*",
+        "User-Agent": "Mozilla/5.0 (compatible; dashboard/1.0)",
+    }
 
+    try:
+        r = requests.get(URL, headers=HEADERS, timeout=15)
+        r.raise_for_status()
+        body = r.json()
+    except requests.exceptions.RequestException as e:
+        log.error(f"scrape_spinelli: {e}")
+        return {"error": True, "message": str(e), "data": []}
+    except ValueError as e:
+        log.error(f"scrape_spinelli JSON parse error: {e}")
+        return {"error": True, "message": f"Risposta non JSON: {e}", "data": []}
+
+    def _parse_vessel(x, section):
+        nave = x.get("name")
+        if not nave:
+            return None
+        
+        def fmt_dt(val):
+            """Formatta ISO datetime → stringa leggibile, None se assente o data anomala."""
+            if not val:
+                return None
+            try:
+                dt = datetime.fromisoformat(val.replace("Z", "+00:00"))
+                # Scarta date farlocche (anno < 2000)
+                if dt.year < 2000:
+                    return None
+                return dt.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M")
+            except Exception:
+                return val
+
+        return {
+            "nave":       nave,
+            "viaggio":    x.get("exportVoyCode") or x.get("importVoyCode"),
+            "eta":        fmt_dt(x.get("eta")),
+            "etd":        fmt_dt(x.get("etd")),
+            "chiusura":   fmt_dt(x.get("customsDeadline")),
+            "imo_reefer": fmt_dt(x.get("imoReeferAcceptance")),
+            "nota":       x.get("note") or None,
+            "porto":      "Genova Spinelli",
+        }
+
+    data = []
+    for section_key in ("IN_ACCETTAZIONE", "PROSSIME_APERTURE"):
+        for x in body.get(section_key) or []:
+            vessel = _parse_vessel(x, section_key)
+            if vessel:
+                data.append(vessel)
+
+    log.info(f"Spinelli: {len(data)} navi")
+
+    return {"error": False, "data": data}
 def scrape_san_giorgio():
     """Terminal San Giorgio — terminalsangiorgio.it (JS-rendered).
     3 tabelle class=tab-elenco: la prima è solo header, le altre contengono i dati.
