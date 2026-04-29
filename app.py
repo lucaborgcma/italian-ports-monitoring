@@ -59,7 +59,21 @@ class User(UserMixin):
 @login_manager.user_loader
 def load_user(user_id): return User(user_id) if user_id == ADMIN_USER else None
 
-_page_views = 0
+_VIEWS_FILE = Path("/tmp/port_monitor_views.txt")
+
+def _load_views():
+    try:
+        return int(_VIEWS_FILE.read_text().strip())
+    except:
+        return 0
+
+def _save_views(n):
+    try:
+        _VIEWS_FILE.write_text(str(n))
+    except:
+        pass
+
+_page_views = _load_views()
 
 _DATE_FORMATS = [
     "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M",
@@ -191,11 +205,20 @@ def scrape_genova_psa():
 def scrape_spinelli():
     """Genova Spinelli — genoaterminal.com JSON API pubblica."""
     url = "https://www.genoaterminal.com/gptPublicService/getvesselsfull"
+    headers = {**HTTP_HEADERS,
+               "Referer": "https://www.genoaterminal.com/showVessels",
+               "Origin":  "https://www.genoaterminal.com",
+               "Accept":  "application/json, text/plain, */*"}
     try:
-        r = requests.get(url, headers=HTTP_HEADERS, timeout=15, verify=False)
+        r = requests.get(url, headers=headers, timeout=15, verify=False)
+        log.info(f"Spinelli: HTTP {r.status_code} ({len(r.text)} bytes)")
+    except Exception as e:
+        log.error(f"scrape_spinelli connessione: {e}")
+        return {"error": True, "message": str(e), "data": []}
+    try:
         body = r.json()
     except Exception as e:
-        log.error(f"scrape_spinelli: {e}")
+        log.error(f"Spinelli non-JSON ({r.status_code}): {r.text[:300]!r}")
         return {"error": True, "message": str(e), "data": []}
 
     v = body.get("IN_ACCETTAZIONE") or []
@@ -551,6 +574,7 @@ def refresh_port(key):
 def index():
     global _page_views
     _page_views += 1
+    _save_views(_page_views)
     ports_json = json.dumps([{"key": p["key"], "name": p["name"], "code": p["code"]} for p in PORTS])
     groups = [{**g, "ports": [{p["key"]: p for p in PORTS}[k] for k in g["keys"] if k in {p["key"]: p for p in PORTS}]} for g in PORT_GROUPS]
     return render_template("index.html", port_groups=groups, ports_json=ports_json, page_views=_page_views)
