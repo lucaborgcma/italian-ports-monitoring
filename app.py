@@ -127,13 +127,28 @@ def scrape_genova_psa():
     url = f"https://online.psagp.it/report_get_data/146?queryArgs=0&clientCodeArgs=0&dhxr{ts}=1"
     try:
         r = requests.get(url, timeout=15, verify=False)
-        raw = BeautifulSoup(r.text, "html.parser").get_text().strip()
+        soup = BeautifulSoup(r.text, "html.parser")
+        body = soup.find("body")
+        raw = body.get_text(separator="").strip() if body else ""
+        cols_map = ["nave", "viaggio", "eta", "accettazione",
+                    "fine_accettazione", "chiusura", "reefer", "imo"]
         data = []
         for row_str in [x for x in raw.split("^$#") if x.strip()]:
-            p = row_str.split("#$^")
-            if len(p) > 2: data.append({"nave": p[0], "viaggio": p[1], "eta": p[2], "porto": "Genova PSA"})
+            parts = row_str.split("#$^")
+            if len(parts) < 2:
+                continue
+            row = {
+                cols_map[i]: (parts[i].strip() or None) if i < len(parts) else None
+                for i in range(len(cols_map))
+            }
+            if not row.get("nave"):
+                continue
+            row["porto"] = "Genova PSA"
+            data.append(row)
         return {"error": False, "data": data}
-    except: return {"error": True, "data": []}
+    except Exception as e:
+        log.error(f"scrape_genova_psa: {e}")
+        return {"error": True, "message": str(e), "data": []}
 
 def scrape_spinelli():
     """Genova Spinelli — genoaterminal.com.
