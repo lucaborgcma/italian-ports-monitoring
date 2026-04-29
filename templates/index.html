@@ -117,27 +117,61 @@ async function refreshPort(key) {
   }
 }
 
+function semClass(s) {
+  if (!s) return '';
+  let t = s.trim().replace(' - ', ' ');
+  t = t.replace(/^(\d{2})\/(\d{2})\/(\d{4})/, '$3-$2-$1');
+  t = t.replace(/^(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1');
+  t = t.replace(' ', 'T');
+  const d = new Date(t);
+  if (isNaN(d)) return '';
+  const h = (d - Date.now()) / 3600000;
+  if (h < 0)  return 'eta-alert';
+  if (h < 24) return 'eta-warn';
+  return 'eta-ok';
+}
+
+function dateCell(val) {
+  if (!val) return '<td>—</td>';
+  const cls = semClass(val);
+  return `<td><span class="${cls}">${val}</span></td>`;
+}
+
 function renderTable(key, result) {
   const body = document.getElementById('body-' + key);
   if (result.error) {
-    body.innerHTML = `<div style="padding:10px; color:red;">${result.message}</div>`;
+    body.innerHTML = `<div style="padding:10px; color:#c62828; border-left:4px solid #c62828; background:#fdecea;">⚠️ ${result.message || 'Errore'}</div>`;
     return;
   }
   const rows = result.data || [];
   if (rows.length === 0) {
-    body.innerHTML = '<div style="padding:20px; text-align:center; color:#999;">Nessuna nave in porto</div>';
+    body.innerHTML = '<div style="padding:20px; text-align:center; color:#999; font-style:italic;">Nessuna nave in porto</div>';
     return;
   }
-  let html = '<table><thead><tr><th>Nave</th><th>ETA</th><th>Match Excel</th></tr></thead><tbody>';
+
+  // Aggiorna contatore nella card header
+  const totalEl = document.getElementById('total-' + key);
+  if (totalEl) totalEl.textContent = rows.length;
+
+  const heads = ['Nave','Viaggio','ETA','Accettazione','Fine Acc.','Chiusura'];
+  let html = '<div style="overflow-x:auto"><table><thead><tr>'
+    + heads.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
+
   rows.forEach(r => {
-    const discClass = r.delta_eta_h > 4 ? 'disc-hi' : '';
-    html += `<tr>
-      <td><b>${r.nave}</b></td>
-      <td>${r.eta || '—'}</td>
-      <td class="${discClass}">${r.sched_eta || '—'}</td>
+    const isNew = r.is_new;
+    const rowStyle = isNew ? ' style="background:#f0fff4"' : '';
+    const badge = isNew ? ' <span style="background:#e8f5e9;color:#1b7e34;font-size:.65rem;padding:1px 5px;border-radius:3px;font-weight:bold">NEW</span>' : '';
+    html += `<tr${rowStyle}>
+      <td><b>${r.nave || '—'}</b>${badge}</td>
+      <td style="color:#555">${r.viaggio || '—'}</td>
+      ${dateCell(r.eta)}
+      ${dateCell(r.accettazione)}
+      ${dateCell(r.fine_accettazione)}
+      ${dateCell(r.chiusura)}
     </tr>`;
   });
-  html += '</tbody></table>';
+
+  html += '</tbody></table></div>';
   body.innerHTML = html;
 }
 

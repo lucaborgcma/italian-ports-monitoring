@@ -138,9 +138,26 @@ def scrape_genova_psa():
 def scrape_spinelli():
     try:
         r = requests.get("https://www.genoaterminal.com/gptPublicService/getvesselsfull", timeout=15, verify=False)
-        v = r.json().get("IN_ACCETTAZIONE", [])
-        return {"error": False, "data": [{"nave": x.get("name"), "viaggio": x.get("exportVoyCode"), "eta": x.get("eta"), "porto": "Genova Spinelli"} for x in v]}
-    except: return {"error": True, "data": []}
+        body = r.json()
+        v = body.get("IN_ACCETTAZIONE") or []
+        data = []
+        for x in v:
+            nave = x.get("name") or x.get("vesselName") or x.get("vessel")
+            if not nave:
+                log.warning(f"Spinelli: riga senza nome nave: {x}")
+                continue
+            data.append({
+                "nave":    nave,
+                "viaggio": x.get("exportVoyCode") or x.get("voyageCode"),
+                "eta":     x.get("eta"),
+                "etd":     x.get("etd"),
+                "chiusura": x.get("customsDeadline"),
+                "porto":   "Genova Spinelli",
+            })
+        return {"error": False, "data": data}
+    except Exception as e:
+        log.error(f"scrape_spinelli: {e}")
+        return {"error": True, "message": str(e), "data": []}
 
 def scrape_livorno():
     try:
@@ -286,16 +303,24 @@ def scrape_salerno():
 def scrape_san_giorgio():
     """Terminal San Giorgio — terminalsangiorgio.it (JS-rendered)."""
     url  = "https://www.terminalsangiorgio.it/"
+    # Prova prima con wait_selector, poi senza (fallback se struttura cambiata)
     html = _fetch_html_browser(url, wait_selector="table.tab-elenco")
+    if not html:
+        html = _fetch_html_browser(url)
     if not html:
         return _empty_table_error("Errore connessione Terminal San Giorgio")
     try:
         soup   = BeautifulSoup(html, "lxml")
         tables = soup.find_all("table", class_="tab-elenco")
-        # Prima tabella = solo intestazioni → skip
-        data_tables = tables[1:]
+        log.info(f"San Giorgio: trovate {len(tables)} tabelle tab-elenco")
+        # Prima tabella = solo intestazioni → skip; se c'è solo 1, usala
+        data_tables = tables[1:] if len(tables) > 1 else tables
         if not data_tables:
-            return _empty_table_error("Terminal San Giorgio: tabelle dati non trovate")
+            # Fallback: qualsiasi tabella nella pagina
+            data_tables = soup.find_all("table")
+            log.info(f"San Giorgio fallback: {len(data_tables)} tabelle generiche")
+        if not data_tables:
+            return _empty_table_error("Terminal San Giorgio: nessuna tabella trovata")
         data = []
         for table in data_tables:
             for tr in table.find_all("tr"):
@@ -303,7 +328,7 @@ def scrape_san_giorgio():
                 if len(cells) < 2:
                     continue
                 nave = cells[0]
-                if not nave:
+                if not nave or nave.upper() == "NAME":
                     continue
                 customs = cells[4] if len(cells) > 4 else None
                 if customs == "-":
@@ -317,6 +342,7 @@ def scrape_san_giorgio():
                 })
         if not data:
             return _empty_table_error("Terminal San Giorgio: nessun dato estratto")
+        log.info(f"San Giorgio: {len(data)} navi estratte")
         return {"error": False, "data": data}
     except Exception as e:
         log.error(f"scrape_san_giorgio: {e}")
