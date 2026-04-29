@@ -34,10 +34,12 @@
     transition: background .15s;
   }
   .btn-pos:hover { background: #0d47a1; }
-  .btn-pos.loading { opacity: .6; cursor: default; }
+  .btn-pos.active { background: #0d47a1; }
 
   .map-wrap { max-width: 1440px; margin: 20px auto 0; padding: 0 20px; }
   #italy-map { height: 420px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+  #ais-wrap { display: none; margin-top: 8px; }
+  #ais-wrap iframe { width: 100%; height: 480px; border: none; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
 
   .grid {
     display: grid; grid-template-columns: 1fr;
@@ -70,7 +72,7 @@
   <div class="header-title">🚢 NAVI APERTE — Port Monitor</div>
   <div class="header-right">
     <span style="font-size:0.8rem; opacity:0.7;">👁 {{ page_views }} visite</span>
-    <button class="btn-pos" id="btn-pos" onclick="loadPositions()">📍 Posizioni Live</button>
+    <button class="btn-pos" id="btn-pos" onclick="loadPositions()">📍 Live AIS</button>
     <button class="btn-refresh" onclick="refreshAll()">🔄 Aggiorna Tutto</button>
     <a href="/logout" style="color: white; text-decoration: none; font-size: 0.9rem;">Logout</a>
   </div>
@@ -78,6 +80,9 @@
 
 <div class="map-wrap">
   <div id="italy-map"></div>
+  <div id="ais-wrap">
+    <iframe id="ais-frame" src="" allowfullscreen></iframe>
+  </div>
 </div>
 
 {% for group in port_groups %}
@@ -218,55 +223,24 @@ function refreshAll() {
   keys.forEach(k => refreshPort(k));
 }
 
-// ---- AISHub positions ----
-async function loadPositions() {
+// ---- VesselFinder live AIS toggle ----
+let aisVisible = false;
+function loadPositions() {
   const btn = document.getElementById('btn-pos');
-  if (allVesselNames.size === 0) {
-    alert('Carica prima i dati dei porti.');
-    return;
-  }
-  btn.textContent = '⏳ Caricamento...';
-  btn.classList.add('loading');
-  btn.disabled = true;
-  try {
-    const res = await fetch('/vessel_positions', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({names: [...allVesselNames]})
-    });
-    const positions = await res.json();
-    vesselLayer.clearLayers();
-    if (positions.error) {
-      alert('Errore AISHub: ' + positions.message);
-      return;
+  const wrap = document.getElementById('ais-wrap');
+  const frame = document.getElementById('ais-frame');
+  aisVisible = !aisVisible;
+  if (aisVisible) {
+    if (!frame.src || frame.src === window.location.href) {
+      frame.src = 'https://www.vesselfinder.com/aismap?lat=42.5&lng=12.5&zoom=6&width=100%25&height=480&names=1&fleet=0';
     }
-    let count = 0;
-    for (const [name, p] of Object.entries(positions)) {
-      if (!p.lat || !p.lon) continue;
-      const cog = p.cog || 0;
-      const icon = L.divIcon({
-        html: `<span class="vessel-marker" style="transform:rotate(${cog}deg)">🚢</span>`,
-        className: '',
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
-      });
-      const vfLink = `https://www.vesselfinder.com/vessels/search?name=${encodeURIComponent(p.name||name)}`;
-      L.marker([p.lat, p.lon], {icon})
-        .bindPopup(`<b>${p.name||name}</b><br>
-          SOG: ${p.sog != null ? p.sog+' kn' : '—'}<br>
-          COG: ${cog}°<br>
-          MMSI: ${p.mmsi||'—'}<br>
-          <a href="${vfLink}" target="_blank">Vedi su VesselFinder →</a>`)
-        .addTo(vesselLayer);
-      count++;
-    }
-    btn.textContent = `📍 ${count} navi in mappa`;
-  } catch(e) {
-    alert('Errore: ' + e);
-    btn.textContent = '📍 Posizioni Live';
-  } finally {
-    btn.classList.remove('loading');
-    btn.disabled = false;
+    wrap.style.display = 'block';
+    btn.textContent = '🗺️ Nascondi AIS';
+    btn.classList.add('active');
+  } else {
+    wrap.style.display = 'none';
+    btn.textContent = '📍 Live AIS';
+    btn.classList.remove('active');
   }
 }
 
