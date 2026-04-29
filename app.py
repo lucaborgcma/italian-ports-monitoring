@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, time, os, logging, threading, requests, urllib3
+import json, re, time, os, logging, threading, requests, urllib3
 from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -58,6 +58,42 @@ class User(UserMixin):
 @login_manager.user_loader
 def load_user(user_id): return User(user_id) if user_id == ADMIN_USER else None
 
+_page_views = 0
+
+_DATE_FORMATS = [
+    "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M",
+    "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",
+    "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y",
+    "%d-%m-%Y %H:%M:%S", "%d-%m-%Y %H:%M", "%d-%m-%Y",
+    "%d %b %Y %H:%M", "%d %b %Y", "%d %B %Y %H:%M", "%d %B %Y",
+    "%Y%m%d%H%M", "%Y%m%d",
+]
+_DATE_FIELDS = {"eta", "etb", "etd", "accettazione", "fine_accettazione", "chiusura"}
+
+def _normalize_date(val):
+    if not val:
+        return val
+    s = str(val).strip()
+    if not s or s in ("-", "—", "N/A", "n/a"):
+        return None
+    # Rimuovi timezone offset tipo "+0200"
+    s = re.sub(r'\s*[+-]\d{4}$', '', s).strip()
+    for fmt in _DATE_FORMATS:
+        try:
+            dt = datetime.strptime(s, fmt)
+            if dt.hour == 0 and dt.minute == 0:
+                return dt.strftime("%d/%m/%Y")
+            return dt.strftime("%d/%m/%Y %H:%M")
+        except ValueError:
+            continue
+    return val  # non parsabile: restituisce as-is
+
+def _normalize_dates(row: dict) -> dict:
+    for k in _DATE_FIELDS:
+        if k in row:
+            row[k] = _normalize_date(row[k])
+    return row
+
 def _fetch_html(url):
     try:
         r = requests.get(url, headers=HTTP_HEADERS, timeout=HTTP_TIMEOUT, verify=False)
@@ -67,7 +103,7 @@ def _fetch_html(url):
 def _empty_table_error(msg="Sito richiede rendering JS (dati non disponibili)"):
     return {"error": True, "message": msg, "data": []}
 
-def _fetch_html_browser(url, *, wait_selector=None):
+def _fetch_html_browser(url, *, wait_selector=None, wait_until="load"):
     """Fetch HTML con Chromium headless (Playwright) per pagine JS-rendered."""
     try:
         from playwright.sync_api import sync_playwright
@@ -78,7 +114,7 @@ def _fetch_html_browser(url, *, wait_selector=None):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             page = browser.new_page(ignore_https_errors=True)
-            page.goto(url, timeout=30000)
+            page.goto(url, timeout=30000, wait_until=wait_until)
             if wait_selector:
                 page.wait_for_selector(wait_selector, timeout=15000)
             html = page.content()
@@ -153,9 +189,10 @@ def scrape_genova_psa():
 
 def scrape_spinelli():
     """Genova Spinelli — genoaterminal.com.
-    L'API diretta è bloccata da WAF/CAPTCHA su IP cloud.
-    Carichiamo prima la home (imposta sessione/cookie), poi navighiamo
-    all'endpoint API nello stesso contesto browser — il CAPTCHA non scatta.
+    L'IP di Render è bloccato dal WAF per richieste dirette.
+    Carichiamo la home con Playwright (supera il JS challenge), poi
+    eseguiamo fetch() dall'interno del contesto JS del browser stesso
+    così la chiamata API viaggia con i cookie/headers del browser reale.
     """
     try:
         from playwright.sync_api import sync_playwright
@@ -166,27 +203,30 @@ def scrape_spinelli():
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-            page = browser.new_page(ignore_https_errors=True)
-            # Step 1: carica la home per stabilire sessione/cookie
-            page.goto("https://www.genoaterminal.com/", timeout=30000)
-            page.wait_for_timeout(2000)
-            # Step 2: naviga all'API nello stesso contesto — niente CAPTCHA
-            api_response = page.goto(
-                "https://www.genoaterminal.com/gptPublicService/getvesselsfull",
-                timeout=20000
-            )
-            body_text = api_response.text() if api_response else ""
+            ctx = browser.new_context(ignore_https_errors=True)
+            page = ctx.new_page()
+            # Carica la home: supera eventuale JS challenge e imposta cookie
+            page.goto("https://www.genoaterminal.com/", timeout=30000, wait_until="networkidle")
+            # Chiama l'API dall'interno del browser — stessi cookie, stesso contesto
+            result = page.evaluate("""async () => {
+                try {
+                    const r = await fetch('/gptPublicService/getvesselsfull',
+                        {headers: {'Accept': 'application/json, text/plain, */*'}});
+                    const text = await r.text();
+                    try { return {ok: true, data: JSON.parse(text)}; }
+                    catch(e) { return {ok: false, raw: text.substring(0, 400)}; }
+                } catch(e) { return {ok: false, raw: String(e)}; }
+            }""")
             browser.close()
     except Exception as e:
         log.error(f"scrape_spinelli browser: {e}")
         return {"error": True, "message": str(e), "data": []}
 
-    try:
-        body = json.loads(body_text)
-    except Exception:
-        log.error(f"Spinelli API non-JSON: {body_text[:200]!r}")
-        return _empty_table_error(f"Spinelli: risposta API non JSON")
+    if not result.get("ok"):
+        log.error(f"Spinelli fetch non-JSON: {result.get('raw','')!r}")
+        return _empty_table_error("Spinelli: risposta API non JSON (WAF attivo)")
 
+    body = result["data"]
     v = body.get("IN_ACCETTAZIONE") or []
     data = []
     for x in v:
@@ -424,9 +464,9 @@ def scrape_san_giorgio():
     """Terminal San Giorgio — terminalsangiorgio.it (JS-rendered)."""
     url = "https://www.terminalsangiorgio.it/"
     html = None
-    # Tenta prima con wait_selector specifico, poi con networkidle, poi senza attesa
+    # Tenta prima con networkidle (JS completo), poi fallback più semplici
     for attempt, kwargs in [
-        (1, {"wait_selector": "table.tab-elenco"}),
+        (1, {"wait_until": "networkidle"}),
         (2, {"wait_selector": "table"}),
         (3, {}),
     ]:
@@ -506,14 +546,19 @@ def login():
 @login_required
 def refresh_port(key):
     if key not in SCRAPERS: return jsonify({"error": True}), 404
-    return jsonify({"key": key, "result": SCRAPERS[key]()})
+    result = SCRAPERS[key]()
+    if not result.get("error") and result.get("data"):
+        result["data"] = [_normalize_dates(r) for r in result["data"]]
+    return jsonify({"key": key, "result": result})
 
 @app.route('/')
 @login_required
 def index():
+    global _page_views
+    _page_views += 1
     ports_json = json.dumps([{"key": p["key"], "name": p["name"], "code": p["code"]} for p in PORTS])
     groups = [{**g, "ports": [{p["key"]: p for p in PORTS}[k] for k in g["keys"] if k in {p["key"]: p for p in PORTS}]} for g in PORT_GROUPS]
-    return render_template("index.html", port_groups=groups, ports_json=ports_json)
+    return render_template("index.html", port_groups=groups, ports_json=ports_json, page_views=_page_views)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
