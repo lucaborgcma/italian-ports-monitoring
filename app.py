@@ -136,37 +136,58 @@ def scrape_genova_psa():
     except: return {"error": True, "data": []}
 
 def scrape_spinelli():
-    url = "https://www.genoaterminal.com/gptPublicService/getvesselsfull"
+    """Genova Spinelli — genoaterminal.com.
+    L'API diretta è bloccata da WAF/CAPTCHA su IP cloud.
+    Usiamo Playwright per caricare la pagina e intercettare la risposta XHR.
+    """
     try:
-        headers = {**HTTP_HEADERS,
-                   "Referer": "https://www.genoaterminal.com/",
-                   "Accept": "application/json, text/plain, */*",
-                   "Origin": "https://www.genoaterminal.com"}
-        r = requests.get(url, headers=headers, timeout=15, verify=False)
-        try:
-            body = r.json()
-        except Exception:
-            log.error(f"Spinelli non-JSON ({r.status_code}): {r.text[:300]}")
-            return _empty_table_error(f"Spinelli: risposta non JSON (status {r.status_code})")
-        v = body.get("IN_ACCETTAZIONE") or []
-        data = []
-        for x in v:
-            nave = x.get("name") or x.get("vesselName") or x.get("vessel")
-            if not nave:
-                continue
-            data.append({
-                "nave":     nave,
-                "viaggio":  x.get("exportVoyCode") or x.get("voyageCode"),
-                "eta":      x.get("eta"),
-                "etd":      x.get("etd"),
-                "chiusura": x.get("customsDeadline"),
-                "servizio": x.get("service") or x.get("lineService"),
-                "porto":    "Genova Spinelli",
-            })
-        return {"error": False, "data": data}
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        log.error("playwright non installato")
+        return _empty_table_error("playwright non installato")
+
+    captured = []
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+            page = browser.new_page(ignore_https_errors=True)
+
+            def on_response(response):
+                if "getvesselsfull" in response.url:
+                    try:
+                        captured.append(response.json())
+                    except Exception as e:
+                        log.warning(f"Spinelli XHR non-JSON: {e}")
+
+            page.on("response", on_response)
+            page.goto("https://www.genoaterminal.com/", timeout=30000)
+            page.wait_for_timeout(6000)
+            browser.close()
     except Exception as e:
-        log.error(f"scrape_spinelli: {e}")
+        log.error(f"scrape_spinelli browser: {e}")
         return {"error": True, "message": str(e), "data": []}
+
+    if not captured:
+        return _empty_table_error("Spinelli: nessuna risposta XHR catturata")
+
+    body = captured[0]
+    v = body.get("IN_ACCETTAZIONE") or []
+    data = []
+    for x in v:
+        nave = x.get("name") or x.get("vesselName") or x.get("vessel")
+        if not nave:
+            continue
+        data.append({
+            "nave":     nave,
+            "viaggio":  x.get("exportVoyCode") or x.get("voyageCode"),
+            "eta":      x.get("eta"),
+            "etd":      x.get("etd"),
+            "chiusura": x.get("customsDeadline"),
+            "servizio": x.get("service") or x.get("lineService"),
+            "porto":    "Genova Spinelli",
+        })
+    log.info(f"Spinelli: {len(data)} navi da XHR intercept")
+    return {"error": False, "data": data}
 
 def scrape_livorno():
     try:
