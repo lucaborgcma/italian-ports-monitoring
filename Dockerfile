@@ -11,4 +11,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--worker-class", "sync", "--timeout", "300", "--keep-alive", "5", "--max-requests", "50", "--max-requests-jitter", "5", "app:app"]
+CMD gunicorn --bind 0.0.0.0:${PORT:-10000} --workers 1 --worker-class sync --timeout 300 --keep-alive 5 --max-requests 50 --max-requests-jitter 5 app:app
