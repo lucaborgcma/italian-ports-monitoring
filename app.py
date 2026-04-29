@@ -190,61 +190,15 @@ def scrape_genova_psa():
 
 def scrape_spinelli():
     """Genova Spinelli — genoaterminal.com.
-    L'IP di Render è bloccato dal WAF per richieste dirette.
-    Carichiamo la home con Playwright (supera il JS challenge), poi
-    eseguiamo fetch() dall'interno del contesto JS del browser stesso
-    così la chiamata API viaggia con i cookie/headers del browser reale.
+    L'IP di Render è bloccato da WAF a livello di rete: nessun approccio
+    (requests, Playwright, in-browser fetch) riesce ad aggirarlo.
+    Restituisce un messaggio informativo invece di un errore tecnico.
     """
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        log.error("playwright non installato")
-        return _empty_table_error("playwright non installato")
-
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-            ctx = browser.new_context(ignore_https_errors=True)
-            page = ctx.new_page()
-            # Carica la home: supera eventuale JS challenge e imposta cookie
-            page.goto("https://www.genoaterminal.com/", timeout=30000, wait_until="networkidle")
-            # Chiama l'API dall'interno del browser — stessi cookie, stesso contesto
-            result = page.evaluate("""async () => {
-                try {
-                    const r = await fetch('/gptPublicService/getvesselsfull',
-                        {headers: {'Accept': 'application/json, text/plain, */*'}});
-                    const text = await r.text();
-                    try { return {ok: true, data: JSON.parse(text)}; }
-                    catch(e) { return {ok: false, raw: text.substring(0, 400)}; }
-                } catch(e) { return {ok: false, raw: String(e)}; }
-            }""")
-            browser.close()
-    except Exception as e:
-        log.error(f"scrape_spinelli browser: {e}")
-        return {"error": True, "message": str(e), "data": []}
-
-    if not result.get("ok"):
-        log.error(f"Spinelli fetch non-JSON: {result.get('raw','')!r}")
-        return _empty_table_error("Spinelli: risposta API non JSON (WAF attivo)")
-
-    body = result["data"]
-    v = body.get("IN_ACCETTAZIONE") or []
-    data = []
-    for x in v:
-        nave = x.get("name") or x.get("vesselName") or x.get("vessel")
-        if not nave:
-            continue
-        data.append({
-            "nave":     nave,
-            "viaggio":  x.get("exportVoyCode") or x.get("voyageCode"),
-            "eta":      x.get("eta"),
-            "etd":      x.get("etd"),
-            "chiusura": x.get("customsDeadline"),
-            "servizio": x.get("service") or x.get("lineService"),
-            "porto":    "Genova Spinelli",
-        })
-    log.info(f"Spinelli: {len(data)} navi")
-    return {"error": False, "data": data}
+    return {
+        "error": True,
+        "message": "Terminale non raggiungibile: genoaterminal.com blocca IP cloud con CAPTCHA",
+        "data": [],
+    }
 
 def scrape_livorno():
     try:
@@ -462,70 +416,51 @@ def scrape_salerno():
         return {"error": True, "message": str(e), "data": []}
 
 def scrape_san_giorgio():
-    """Terminal San Giorgio — terminalsangiorgio.it (JS-rendered)."""
+    """Terminal San Giorgio — terminalsangiorgio.it (HTML statico, no JS).
+    Struttura: 4 tabelle class=tab-elenco; la prima ha solo le intestazioni,
+    le successive (dentro un cycle-slideshow) contengono i dati.
+    Colonne: NAME | ETA | VOY IN | VOY OUT | CUSTOMS CLOSED | ETD
+    """
     url = "https://www.terminalsangiorgio.it/"
-    html = None
-    # Tenta prima con networkidle (JS completo), poi fallback più semplici
-    for attempt, kwargs in [
-        (1, {"wait_until": "networkidle"}),
-        (2, {"wait_selector": "table"}),
-        (3, {}),
-    ]:
-        html = _fetch_html_browser(url, **kwargs)
-        if html:
-            log.info(f"San Giorgio: HTML ottenuto al tentativo {attempt}")
-            break
-    if not html:
-        return _empty_table_error("Errore connessione Terminal San Giorgio")
     try:
-        soup = BeautifulSoup(html, "lxml")
-        # Log delle tabelle trovate per debug
-        all_tables = soup.find_all("table")
-        log.info(f"San Giorgio: {len(all_tables)} tabelle totali in pagina")
-        for i, t in enumerate(all_tables):
-            log.info(f"  tabella[{i}] class={t.get('class')} rows={len(t.find_all('tr'))}")
-
+        r = requests.get(url, headers=HTTP_HEADERS, timeout=15, verify=False)
+        soup = BeautifulSoup(r.text, "lxml")
+    except Exception as e:
+        log.error(f"scrape_san_giorgio connessione: {e}")
+        return {"error": True, "message": str(e), "data": []}
+    try:
         tables = soup.find_all("table", class_="tab-elenco")
+        log.info(f"San Giorgio: {len(tables)} tabelle tab-elenco trovate")
+        # Tabella 0 = solo intestazioni; dati nelle successive
         data_tables = tables[1:] if len(tables) > 1 else tables
         if not data_tables:
-            data_tables = [t for t in all_tables if len(t.find_all("tr")) > 1]
-        if not data_tables:
-            return _empty_table_error("Terminal San Giorgio: nessuna tabella trovata")
-
+            return _empty_table_error("Terminal San Giorgio: nessuna tabella dati")
         data = []
         for table in data_tables:
-            rows = table.find_all("tr")
-            # Cerca intestazioni
-            header_row = rows[0] if rows else None
-            headers = [th.get_text(strip=True) for th in header_row.find_all(["th", "td"])] if header_row else []
-            col = {h: i for i, h in enumerate(headers)}
-            log.info(f"San Giorgio headers: {headers}")
-            for tr in rows[1:]:
+            for tr in table.find_all("tr"):
                 cells = [td.get_text(strip=True) for td in tr.find_all("td")]
                 if len(cells) < 2:
                     continue
-                def gc(name, c=cells):
-                    return (c[col[name]] or None) if name in col and col[name] < len(c) else None
-                # Prova header-based, fallback a indici fissi
-                nave = gc("NAME") or gc("Nave") or gc("Vessel") or (cells[0] if cells else None)
-                if not nave or nave.upper() in ("NAME", "NAVE", "VESSEL"):
+                nave = cells[0]
+                if not nave:
                     continue
-                customs = gc("CUT OFF") or gc("Chiusura") or gc("CUSTOMS") or (cells[4] if len(cells) > 4 else None)
-                if customs == "-":
-                    customs = None
+                chiusura = cells[4] if len(cells) > 4 else None
+                if chiusura == "-":
+                    chiusura = None
                 data.append({
-                    "nave":              nave,
-                    "eta":               gc("ETA") or gc("ETB") or (cells[1] if len(cells) > 1 else None),
-                    "viaggio":           gc("VOY") or gc("Viaggio") or (cells[2] if len(cells) > 2 else None),
-                    "fine_accettazione": customs,
-                    "porto":             "Genova San Giorgio",
+                    "nave":    nave,
+                    "eta":     cells[1] if len(cells) > 1 else None,
+                    "viaggio": cells[2] if len(cells) > 2 else None,
+                    "etd":     cells[5] if len(cells) > 5 else None,
+                    "chiusura": chiusura,
+                    "porto":   "Genova San Giorgio",
                 })
         if not data:
             return _empty_table_error("Terminal San Giorgio: nessun dato estratto")
-        log.info(f"San Giorgio: {len(data)} navi estratte")
+        log.info(f"San Giorgio: {len(data)} navi")
         return {"error": False, "data": data}
     except Exception as e:
-        log.error(f"scrape_san_giorgio: {e}")
+        log.error(f"scrape_san_giorgio parse: {e}")
         return {"error": True, "message": str(e), "data": []}
 
 def scrape_conateco():
