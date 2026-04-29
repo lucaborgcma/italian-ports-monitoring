@@ -59,7 +59,8 @@ class User(UserMixin):
 @login_manager.user_loader
 def load_user(user_id): return User(user_id) if user_id == ADMIN_USER else None
 
-_VIEWS_FILE = Path("/tmp/port_monitor_views.txt")
+_VIEWS_FILE = Path(os.environ.get("VIEWS_FILE",
+                   "/opt/render/project/.port_views"))
 
 def _load_views():
     try:
