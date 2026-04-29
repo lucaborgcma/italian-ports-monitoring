@@ -33,7 +33,7 @@ PORT_GROUPS = [
     {"label": "Liguria", "keys": ["GENOVA_PSA", "SPINELLI", "GENOVA_SECH", "SAN_GIORGIO", "LA_SPEZIA"]},
     {"label": "Toscana", "keys": ["LIVORNO"]},
     {"label": "Adriatico", "keys": ["VENEZIA", "TRIESTE"]},
-    {"label": "Campania", "keys": ["NAPOLI", "SALERNO"]},
+    {"label": "Campania", "keys": ["NAPOLI", "CONATECO", "SALERNO"]},
 ]
 PORTS = [
     {"key": "GENOVA_PSA", "name": "Genova PSA", "code": "ITGOA"},
@@ -45,6 +45,7 @@ PORTS = [
     {"key": "VENEZIA", "name": "Venezia", "code": "ITVCE"},
     {"key": "TRIESTE", "name": "Trieste", "code": "ITTRS"},
     {"key": "NAPOLI", "name": "Napoli", "code": "ITNAP"},
+    {"key": "CONATECO", "name": "Napoli Conateco", "code": "ITNAP"},
     {"key": "SALERNO", "name": "Salerno", "code": "ITSAL"},
 ]
 
@@ -66,7 +67,7 @@ _DATE_FORMATS = [
     "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y",
     "%d-%m-%Y %H:%M:%S", "%d-%m-%Y %H:%M", "%d-%m-%Y",
     "%d %b %Y %H:%M", "%d %b %Y", "%d %B %Y %H:%M", "%d %B %Y",
-    "%Y%m%d%H%M", "%Y%m%d",
+    "%Y%m%d %H:%M:%S", "%Y%m%d %H:%M", "%Y%m%d",
 ]
 _DATE_FIELDS = {"eta", "etb", "etd", "accettazione", "fine_accettazione", "chiusura"}
 
@@ -527,11 +528,50 @@ def scrape_san_giorgio():
         log.error(f"scrape_san_giorgio: {e}")
         return {"error": True, "message": str(e), "data": []}
 
+def scrape_conateco():
+    """Conateco Napoli — API JSON pubblica, no browser necessario."""
+    data = []
+    for stato in ("PRESENTI", "PREVISTE", "ORMEGGIATE"):
+        url = f"https://api.conateco.it/ConatecoServicesApi/BerthForecast?stato={stato}"
+        try:
+            r = requests.get(url, headers=HTTP_HEADERS, timeout=15, verify=False)
+            items = r.json()
+        except Exception as e:
+            log.warning(f"Conateco {stato}: {e}")
+            continue
+        for x in items:
+            nave = x.get("nome_nave")
+            if not nave:
+                continue
+            d = x.get("data_previ") or ""
+            o = (x.get("ora_previs") or "").replace(".", ":")
+            eta = f"{d} {o}".strip() or None
+            dac = x.get("tdtac1") or ""
+            oac = x.get("torac1") or ""
+            accettazione = f"{dac} {oac}".strip() or None
+            dcd = x.get("tdtcd1") or ""
+            ocd = x.get("torcd1") or ""
+            chiusura = f"{dcd} {ocd}".strip() or None
+            data.append({
+                "nave":         nave,
+                "viaggio":      x.get("id_viaggio"),
+                "servizio":     (x.get("cod_lin_nv") or "").strip() or None,
+                "eta":          eta,
+                "accettazione": accettazione,
+                "chiusura":     chiusura,
+                "porto":        "Napoli Conateco",
+            })
+    if not data:
+        return _empty_table_error("Conateco: nessun dato")
+    log.info(f"Conateco: {len(data)} navi ({','.join(set(x.get('porto','') for x in data))})")
+    return {"error": False, "data": data}
+
+
 SCRAPERS = {
     "GENOVA_PSA": scrape_genova_psa, "SPINELLI": scrape_spinelli, "LIVORNO": scrape_livorno,
     "NAPOLI": scrape_napoli, "VENEZIA": scrape_venezia, "TRIESTE": scrape_trieste,
     "LA_SPEZIA": scrape_lsz, "SALERNO": scrape_salerno, "GENOVA_SECH": scrape_sech,
-    "SAN_GIORGIO": scrape_san_giorgio,
+    "SAN_GIORGIO": scrape_san_giorgio, "CONATECO": scrape_conateco,
 }
 
 # --- ROUTES ---
