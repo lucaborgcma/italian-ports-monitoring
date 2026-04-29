@@ -189,46 +189,15 @@ def scrape_genova_psa():
         return {"error": True, "message": str(e), "data": []}
 
 def scrape_spinelli():
-    """Genova Spinelli — genoaterminal.com/showVessels (Vue SPA + Barracuda WAF).
-    Carichiamo la pagina pubblica /showVessels con Playwright: il browser reale
-    esegue FingerprintJS, setta i cookie Barracuda, e poi la Vue app fa le XHR
-    all'API con le credenziali corrette. Intercettiamo quella risposta.
-    """
+    """Genova Spinelli — genoaterminal.com JSON API pubblica."""
+    url = "https://www.genoaterminal.com/gptPublicService/getvesselsfull"
     try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        return _empty_table_error("playwright non installato")
-
-    captured = []
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-            ctx = browser.new_context(ignore_https_errors=True)
-            page = ctx.new_page()
-
-            def on_response(response):
-                if "genoaterminal.com" in response.url and response.url != "https://www.genoaterminal.com/showVessels":
-                    log.info(f"Spinelli XHR: {response.status} {response.url}")
-                if "getvesselsfull" in response.url or "getVessels" in response.url or "vessels" in response.url.lower():
-                    try:
-                        captured.append(response.json())
-                        log.info(f"Spinelli XHR catturata: {response.url}")
-                    except Exception as e:
-                        log.warning(f"Spinelli XHR non-JSON ({response.url}): {e}")
-
-            page.on("response", on_response)
-            # Carica la pagina pubblica /showVessels, non la home
-            page.goto("https://www.genoaterminal.com/showVessels", timeout=40000, wait_until="networkidle")
-            browser.close()
+        r = requests.get(url, headers=HTTP_HEADERS, timeout=15, verify=False)
+        body = r.json()
     except Exception as e:
-        log.error(f"scrape_spinelli browser: {e}")
+        log.error(f"scrape_spinelli: {e}")
         return {"error": True, "message": str(e), "data": []}
 
-    if not captured:
-        log.warning("Spinelli: nessuna XHR catturata — log URL delle risposte per debug")
-        return _empty_table_error("Spinelli: nessuna risposta XHR catturata da showVessels")
-
-    body = captured[0]
     v = body.get("IN_ACCETTAZIONE") or []
     data = []
     for x in v:
