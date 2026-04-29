@@ -127,9 +127,9 @@ def scrape_genova_psa():
     url = f"https://online.psagp.it/report_get_data/146?queryArgs=0&clientCodeArgs=0&dhxr{ts}=1"
     try:
         r = requests.get(url, timeout=15, verify=False)
-        soup = BeautifulSoup(r.text, "html.parser")
-        body = soup.find("body")
-        raw = body.get_text(separator="").strip() if body else ""
+        # La risposta è testo puro (non HTML), get_text() su tutto
+        raw = BeautifulSoup(r.text, "html.parser").get_text().strip()
+        log.info(f"PSA raw preview: {raw[:120]!r}")
         cols_map = ["nave", "viaggio", "eta", "accettazione",
                     "fine_accettazione", "chiusura", "reefer", "imo"]
         data = []
@@ -145,6 +145,7 @@ def scrape_genova_psa():
                 continue
             row["porto"] = "Genova PSA"
             data.append(row)
+        log.info(f"PSA: {len(data)} navi estratte")
         return {"error": False, "data": data}
     except Exception as e:
         log.error(f"scrape_genova_psa: {e}")
@@ -153,7 +154,8 @@ def scrape_genova_psa():
 def scrape_spinelli():
     """Genova Spinelli — genoaterminal.com.
     L'API diretta è bloccata da WAF/CAPTCHA su IP cloud.
-    Usiamo Playwright per caricare la pagina e intercettare la risposta XHR.
+    Carichiamo prima la home (imposta sessione/cookie), poi navighiamo
+    all'endpoint API nello stesso contesto browser — il CAPTCHA non scatta.
     """
     try:
         from playwright.sync_api import sync_playwright
@@ -161,31 +163,30 @@ def scrape_spinelli():
         log.error("playwright non installato")
         return _empty_table_error("playwright non installato")
 
-    captured = []
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             page = browser.new_page(ignore_https_errors=True)
-
-            def on_response(response):
-                if "getvesselsfull" in response.url:
-                    try:
-                        captured.append(response.json())
-                    except Exception as e:
-                        log.warning(f"Spinelli XHR non-JSON: {e}")
-
-            page.on("response", on_response)
+            # Step 1: carica la home per stabilire sessione/cookie
             page.goto("https://www.genoaterminal.com/", timeout=30000)
-            page.wait_for_timeout(6000)
+            page.wait_for_timeout(2000)
+            # Step 2: naviga all'API nello stesso contesto — niente CAPTCHA
+            api_response = page.goto(
+                "https://www.genoaterminal.com/gptPublicService/getvesselsfull",
+                timeout=20000
+            )
+            body_text = api_response.text() if api_response else ""
             browser.close()
     except Exception as e:
         log.error(f"scrape_spinelli browser: {e}")
         return {"error": True, "message": str(e), "data": []}
 
-    if not captured:
-        return _empty_table_error("Spinelli: nessuna risposta XHR catturata")
+    try:
+        body = json.loads(body_text)
+    except Exception:
+        log.error(f"Spinelli API non-JSON: {body_text[:200]!r}")
+        return _empty_table_error(f"Spinelli: risposta API non JSON")
 
-    body = captured[0]
     v = body.get("IN_ACCETTAZIONE") or []
     data = []
     for x in v:
@@ -201,7 +202,7 @@ def scrape_spinelli():
             "servizio": x.get("service") or x.get("lineService"),
             "porto":    "Genova Spinelli",
         })
-    log.info(f"Spinelli: {len(data)} navi da XHR intercept")
+    log.info(f"Spinelli: {len(data)} navi")
     return {"error": False, "data": data}
 
 def scrape_livorno():
@@ -421,41 +422,60 @@ def scrape_salerno():
 
 def scrape_san_giorgio():
     """Terminal San Giorgio — terminalsangiorgio.it (JS-rendered)."""
-    url  = "https://www.terminalsangiorgio.it/"
-    # Prova prima con wait_selector, poi senza (fallback se struttura cambiata)
-    html = _fetch_html_browser(url, wait_selector="table.tab-elenco")
-    if not html:
-        html = _fetch_html_browser(url)
+    url = "https://www.terminalsangiorgio.it/"
+    html = None
+    # Tenta prima con wait_selector specifico, poi con networkidle, poi senza attesa
+    for attempt, kwargs in [
+        (1, {"wait_selector": "table.tab-elenco"}),
+        (2, {"wait_selector": "table"}),
+        (3, {}),
+    ]:
+        html = _fetch_html_browser(url, **kwargs)
+        if html:
+            log.info(f"San Giorgio: HTML ottenuto al tentativo {attempt}")
+            break
     if not html:
         return _empty_table_error("Errore connessione Terminal San Giorgio")
     try:
-        soup   = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "lxml")
+        # Log delle tabelle trovate per debug
+        all_tables = soup.find_all("table")
+        log.info(f"San Giorgio: {len(all_tables)} tabelle totali in pagina")
+        for i, t in enumerate(all_tables):
+            log.info(f"  tabella[{i}] class={t.get('class')} rows={len(t.find_all('tr'))}")
+
         tables = soup.find_all("table", class_="tab-elenco")
-        log.info(f"San Giorgio: trovate {len(tables)} tabelle tab-elenco")
-        # Prima tabella = solo intestazioni → skip; se c'è solo 1, usala
         data_tables = tables[1:] if len(tables) > 1 else tables
         if not data_tables:
-            # Fallback: qualsiasi tabella nella pagina
-            data_tables = soup.find_all("table")
-            log.info(f"San Giorgio fallback: {len(data_tables)} tabelle generiche")
+            data_tables = [t for t in all_tables if len(t.find_all("tr")) > 1]
         if not data_tables:
             return _empty_table_error("Terminal San Giorgio: nessuna tabella trovata")
+
         data = []
         for table in data_tables:
-            for tr in table.find_all("tr"):
+            rows = table.find_all("tr")
+            # Cerca intestazioni
+            header_row = rows[0] if rows else None
+            headers = [th.get_text(strip=True) for th in header_row.find_all(["th", "td"])] if header_row else []
+            col = {h: i for i, h in enumerate(headers)}
+            log.info(f"San Giorgio headers: {headers}")
+            for tr in rows[1:]:
                 cells = [td.get_text(strip=True) for td in tr.find_all("td")]
                 if len(cells) < 2:
                     continue
-                nave = cells[0]
-                if not nave or nave.upper() == "NAME":
+                def gc(name, c=cells):
+                    return (c[col[name]] or None) if name in col and col[name] < len(c) else None
+                # Prova header-based, fallback a indici fissi
+                nave = gc("NAME") or gc("Nave") or gc("Vessel") or (cells[0] if cells else None)
+                if not nave or nave.upper() in ("NAME", "NAVE", "VESSEL"):
                     continue
-                customs = cells[4] if len(cells) > 4 else None
+                customs = gc("CUT OFF") or gc("Chiusura") or gc("CUSTOMS") or (cells[4] if len(cells) > 4 else None)
                 if customs == "-":
                     customs = None
                 data.append({
                     "nave":              nave,
-                    "eta":               cells[1] if len(cells) > 1 else None,
-                    "viaggio":           cells[2] if len(cells) > 2 else None,
+                    "eta":               gc("ETA") or gc("ETB") or (cells[1] if len(cells) > 1 else None),
+                    "viaggio":           gc("VOY") or gc("Viaggio") or (cells[2] if len(cells) > 2 else None),
                     "fine_accettazione": customs,
                     "porto":             "Genova San Giorgio",
                 })
