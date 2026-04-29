@@ -136,23 +136,32 @@ def scrape_genova_psa():
     except: return {"error": True, "data": []}
 
 def scrape_spinelli():
+    url = "https://www.genoaterminal.com/gptPublicService/getvesselsfull"
     try:
-        r = requests.get("https://www.genoaterminal.com/gptPublicService/getvesselsfull", timeout=15, verify=False)
-        body = r.json()
+        headers = {**HTTP_HEADERS,
+                   "Referer": "https://www.genoaterminal.com/",
+                   "Accept": "application/json, text/plain, */*",
+                   "Origin": "https://www.genoaterminal.com"}
+        r = requests.get(url, headers=headers, timeout=15, verify=False)
+        try:
+            body = r.json()
+        except Exception:
+            log.error(f"Spinelli non-JSON ({r.status_code}): {r.text[:300]}")
+            return _empty_table_error(f"Spinelli: risposta non JSON (status {r.status_code})")
         v = body.get("IN_ACCETTAZIONE") or []
         data = []
         for x in v:
             nave = x.get("name") or x.get("vesselName") or x.get("vessel")
             if not nave:
-                log.warning(f"Spinelli: riga senza nome nave: {x}")
                 continue
             data.append({
-                "nave":    nave,
-                "viaggio": x.get("exportVoyCode") or x.get("voyageCode"),
-                "eta":     x.get("eta"),
-                "etd":     x.get("etd"),
+                "nave":     nave,
+                "viaggio":  x.get("exportVoyCode") or x.get("voyageCode"),
+                "eta":      x.get("eta"),
+                "etd":      x.get("etd"),
                 "chiusura": x.get("customsDeadline"),
-                "porto":   "Genova Spinelli",
+                "servizio": x.get("service") or x.get("lineService"),
+                "porto":    "Genova Spinelli",
             })
         return {"error": False, "data": data}
     except Exception as e:
@@ -163,25 +172,99 @@ def scrape_livorno():
     try:
         r = requests.get("https://www.tdt.it/", timeout=15, verify=False)
         soup = BeautifulSoup(r.text, "html.parser")
-        tr = soup.find("table", class_="navi-accettazione").find_all("tr")[1:]
-        return {"error": False, "data": [{"nave": td[0].text.strip(), "eta": td[2].text.strip(), "porto": "Livorno"} for r in tr for td in [r.find_all("td")] if len(td) > 2]}
-    except: return {"error": True, "data": []}
+        table = soup.select_one("table.navi-accettazione")
+        if not table:
+            return _empty_table_error("Livorno: tabella non trovata")
+        rows = table.find_all("tr")
+        if len(rows) < 2:
+            return _empty_table_error()
+        headers = [th.get_text(strip=True) for th in rows[0].find_all(["th", "td"])]
+        col = {h: i for i, h in enumerate(headers)}
+        data = []
+        for tr in rows[1:]:
+            cells = [td.get_text(strip=True) for td in tr.find_all("td")]
+            if not cells:
+                continue
+            def gc(name, c=cells):
+                return (c[col[name]] or None) if name in col and col[name] < len(c) else None
+            data.append({
+                "nave":              gc("Nome nave"),
+                "viaggio":           gc("Viaggio uscita"),
+                "eta":               gc("ETB"),
+                "fine_accettazione": gc("Chiusura accettazione"),
+                "chiusura":          gc("Chiusura doganale"),
+                "porto":             "Livorno",
+            })
+        return {"error": False, "data": data}
+    except Exception as e:
+        log.error(f"scrape_livorno: {e}")
+        return {"error": True, "message": str(e), "data": []}
 
 def scrape_napoli():
     try:
         r = requests.get("https://tfg.bucci.it/@/TFGW_TP_ETA", timeout=15, verify=False)
         soup = BeautifulSoup(r.text, "html.parser")
-        tr = soup.find("table", id="dati").find_all("tr")[1:]
-        return {"error": False, "data": [{"nave": td[1].text.strip(), "eta": td[2].text.strip(), "porto": "Napoli"} for r in tr for td in [r.find_all("td")] if len(td) > 2]}
-    except: return {"error": True, "data": []}
+        table = soup.select_one("table#dati")
+        if not table:
+            return _empty_table_error("Napoli: tabella non trovata")
+        rows = table.find_all("tr")
+        if len(rows) < 2:
+            return _empty_table_error()
+        headers = [th.get_text(strip=True) for th in rows[0].find_all(["th", "td"])]
+        col = {h: i for i, h in enumerate(headers)}
+        data = []
+        for tr in rows[1:]:
+            cells = [td.get_text(strip=True) for td in tr.find_all("td")]
+            if not cells:
+                continue
+            def gc(name, c=cells):
+                return (c[col[name]] or None) if name in col and col[name] < len(c) else None
+            eta_a = gc("E.T.A.") or ""
+            eta_b = gc("E.T.B.") or ""
+            eta   = (f"{eta_a} {eta_b}").strip() or None
+            data.append({
+                "nave":         gc("E.T.S."),
+                "viaggio":      gc("TERMINAL DI CONSEGNA"),
+                "eta":          eta,
+                "accettazione": gc("INT.RIF."),
+                "porto":        "Napoli",
+            })
+        return {"error": False, "data": data}
+    except Exception as e:
+        log.error(f"scrape_napoli: {e}")
+        return {"error": True, "message": str(e), "data": []}
 
 def scrape_venezia():
     try:
         r = requests.get("https://www.vecon.it/tools/info-nave-partenze-arrivi/", timeout=15, verify=False)
         soup = BeautifulSoup(r.text, "html.parser")
-        tr = soup.find("table").find_all("tr")[1:]
-        return {"error": False, "data": [{"nave": td[0].text.strip(), "eta": td[2].text.strip(), "porto": "Venezia"} for r in tr for td in [r.find_all("td")] if len(td) > 2]}
-    except: return {"error": True, "data": []}
+        table = soup.find("table")
+        if not table:
+            return _empty_table_error("Venezia: tabella non trovata")
+        rows = table.find_all("tr")
+        if len(rows) < 2:
+            return _empty_table_error()
+        headers = [th.get_text(strip=True) for th in rows[0].find_all(["th", "td"])]
+        col = {h: i for i, h in enumerate(headers)}
+        data = []
+        for tr in rows[1:]:
+            cells = [td.get_text(strip=True) for td in tr.find_all("td")]
+            if not cells:
+                continue
+            def gc(name, c=cells):
+                return (c[col[name]] or None) if name in col and col[name] < len(c) else None
+            data.append({
+                "nave":              gc("Nome Nave"),
+                "viaggio":           gc("VOY. / RIF. VECON"),
+                "eta":               gc("Eta"),
+                "fine_accettazione": gc("Chiusura Gate"),
+                "accettazione":      gc("Stato"),
+                "porto":             "Venezia",
+            })
+        return {"error": False, "data": data}
+    except Exception as e:
+        log.error(f"scrape_venezia: {e}")
+        return {"error": True, "message": str(e), "data": []}
 
 def scrape_sech():
     """Genova SECH — sech.it (Angular Material, JS-rendered)."""

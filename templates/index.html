@@ -153,7 +153,7 @@ function renderTable(key, result) {
   const totalEl = document.getElementById('total-' + key);
   if (totalEl) totalEl.textContent = rows.length;
 
-  const heads = ['Nave','Viaggio','ETA','Accettazione','Fine Acc.','Chiusura'];
+  const heads = ['Nave','Viaggio','Servizio','ETA','Accettazione','Fine Acc.','Chiusura'];
   let html = '<div style="overflow-x:auto"><table><thead><tr>'
     + heads.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
 
@@ -164,6 +164,7 @@ function renderTable(key, result) {
     html += `<tr${rowStyle}>
       <td><b>${r.nave || '—'}</b>${badge}</td>
       <td style="color:#555">${r.viaggio || '—'}</td>
+      <td style="color:#555">${r.servizio || '—'}</td>
       ${dateCell(r.eta)}
       ${dateCell(r.accettazione)}
       ${dateCell(r.fine_accettazione)}
