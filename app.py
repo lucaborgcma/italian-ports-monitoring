@@ -10,6 +10,10 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# Playwright cerca Chromium in questa cartella (impostata anche in render-build.sh)
+os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH",
+                      "/opt/render/project/src/.playwright-browsers")
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
