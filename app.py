@@ -432,25 +432,21 @@ def scrape_salerno():
         return {"error": True, "message": str(e), "data": []}
 
 def scrape_san_giorgio():
-    """Terminal San Giorgio — terminalsangiorgio.it (HTML statico, no JS).
-    Struttura: 4 tabelle class=tab-elenco; la prima ha solo le intestazioni,
-    le successive (dentro un cycle-slideshow) contengono i dati.
-    Colonne: NAME | ETA | VOY IN | VOY OUT | CUSTOMS CLOSED | ETD
+    """Terminal San Giorgio — terminalsangiorgio.it (JS-rendered).
+    3 tabelle class=tab-elenco: la prima è solo header, le altre contengono i dati.
+    Colonne: NAME(0) | ETA(1) | VOY IN(2) | VOY OUT(3) | CUSTOMS CLOSED(4) | ETD(5)
     """
     url = "https://www.terminalsangiorgio.it/"
+    html = _fetch_html_browser(url, wait_selector="table.tab-elenco")
+    if not html:
+        return _empty_table_error("Errore connessione Terminal San Giorgio")
     try:
-        r = requests.get(url, headers=HTTP_HEADERS, timeout=15, verify=False)
-        soup = BeautifulSoup(r.text, "lxml")
-    except Exception as e:
-        log.error(f"scrape_san_giorgio connessione: {e}")
-        return {"error": True, "message": str(e), "data": []}
-    try:
+        soup   = BeautifulSoup(html, "lxml")
         tables = soup.find_all("table", class_="tab-elenco")
         log.info(f"San Giorgio: {len(tables)} tabelle tab-elenco trovate")
-        # Tabella 0 = solo intestazioni; dati nelle successive
         data_tables = tables[1:] if len(tables) > 1 else tables
         if not data_tables:
-            return _empty_table_error("Terminal San Giorgio: nessuna tabella dati")
+            return _empty_table_error("Terminal San Giorgio: tabelle dati non trovate")
         data = []
         for table in data_tables:
             for tr in table.find_all("tr"):
@@ -460,35 +456,43 @@ def scrape_san_giorgio():
                 nave = cells[0]
                 if not nave:
                     continue
-                chiusura = cells[4] if len(cells) > 4 else None
-                if chiusura == "-":
-                    chiusura = None
+                customs = cells[4] if len(cells) > 4 else None
+                if customs == "-":
+                    customs = None
                 data.append({
-                    "nave":    nave,
-                    "eta":     cells[1] if len(cells) > 1 else None,
-                    "viaggio": cells[2] if len(cells) > 2 else None,
-                    "etd":     cells[5] if len(cells) > 5 else None,
-                    "chiusura": chiusura,
-                    "porto":   "Genova San Giorgio",
+                    "nave":              nave,
+                    "eta":               cells[1] if len(cells) > 1 else None,
+                    "viaggio":           cells[2] if len(cells) > 2 else None,
+                    "etd":               cells[5] if len(cells) > 5 else None,
+                    "fine_accettazione": customs,
+                    "porto":             "Genova San Giorgio",
                 })
         if not data:
             return _empty_table_error("Terminal San Giorgio: nessun dato estratto")
         log.info(f"San Giorgio: {len(data)} navi")
         return {"error": False, "data": data}
     except Exception as e:
-        log.error(f"scrape_san_giorgio parse: {e}")
+        log.error(f"scrape_san_giorgio: {e}")
         return {"error": True, "message": str(e), "data": []}
 
 def scrape_conateco():
-    """Conateco Napoli — API JSON pubblica, no browser necessario."""
+    """Conateco Napoli — API JSON pubblica."""
+    headers = {**HTTP_HEADERS,
+               "Referer": "https://www.conateco.it/berth-forecast/",
+               "Origin":  "https://www.conateco.it",
+               "Accept":  "application/json, text/plain, */*"}
     data = []
     for stato in ("PRESENTI", "PREVISTE", "ORMEGGIATE"):
         url = f"https://api.conateco.it/ConatecoServicesApi/BerthForecast?stato={stato}"
         try:
-            r = requests.get(url, headers=HTTP_HEADERS, timeout=15, verify=False)
+            r = requests.get(url, headers=headers, timeout=15, verify=False)
+            log.info(f"Conateco {stato}: HTTP {r.status_code} ({len(r.text)} bytes)")
             items = r.json()
         except Exception as e:
             log.warning(f"Conateco {stato}: {e}")
+            continue
+        if not isinstance(items, list):
+            log.warning(f"Conateco {stato}: risposta non è lista: {str(items)[:100]}")
             continue
         for x in items:
             nave = x.get("nome_nave")
@@ -513,8 +517,8 @@ def scrape_conateco():
                 "porto":        "Napoli Conateco",
             })
     if not data:
-        return _empty_table_error("Conateco: nessun dato")
-    log.info(f"Conateco: {len(data)} navi ({','.join(set(x.get('porto','') for x in data))})")
+        return _empty_table_error("Conateco: nessun dato ricevuto dalle API")
+    log.info(f"Conateco: {len(data)} navi totali")
     return {"error": False, "data": data}
 
 
