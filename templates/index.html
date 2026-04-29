@@ -190,8 +190,8 @@ function renderTable(key, result) {
       const val = r[f];
       if (f === 'nave') {
         const badge = isNew ? ' <span style="background:#e8f5e9;color:#1b7e34;font-size:.65rem;padding:1px 5px;border-radius:3px;font-weight:bold">NEW</span>' : '';
-        const link = `https://www.vesselfinder.com/vessels/search?name=${encodeURIComponent(val||'')}`;
-        html += `<td><a href="${link}" target="_blank" class="vessel-link"><b>${val||'—'}</b></a>${badge}</td>`;
+        const link = `https://www.marinetraffic.com/en/ais/index/search/all/keyword:${encodeURIComponent(val||'')}`;
+        html += `<td><a href="${link}" target="_blank" class="vessel-link" title="Cerca su MarineTraffic"><b>${val||'—'}</b> 🔗</a>${badge}</td>`;
       } else if (DATE_FIELDS.has(f)) {
         html += dateCell(val);
       } else {
