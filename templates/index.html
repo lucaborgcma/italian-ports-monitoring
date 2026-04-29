@@ -9,7 +9,6 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; color: #333; }
 
-  /* ---- Header ---- */
   .header {
     background: #002B5C; color: #fff;
     padding: 14px 24px;
@@ -28,11 +27,18 @@
   }
   .btn-refresh:hover { background: #cf6510; }
 
-  /* ---- Map ---- */
-  .map-wrap { max-width: 1440px; margin: 20px auto 0; padding: 0 20px; }
-  #italy-map { height: 400px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+  .btn-pos {
+    background: #1565C0; color: #fff; border: none;
+    padding: 9px 16px; border-radius: 4px;
+    font-size: .9rem; font-weight: bold; cursor: pointer;
+    transition: background .15s;
+  }
+  .btn-pos:hover { background: #0d47a1; }
+  .btn-pos.loading { opacity: .6; cursor: default; }
 
-  /* ---- Grid ---- */
+  .map-wrap { max-width: 1440px; margin: 20px auto 0; padding: 0 20px; }
+  #italy-map { height: 420px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+
   .grid {
     display: grid; grid-template-columns: 1fr;
     gap: 20px; padding: 20px;
@@ -42,18 +48,20 @@
   .port-card { background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,.09); }
   .port-header { background: #002B5C; color: #fff; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; }
   .port-name { font-size: 1.1rem; font-weight: bold; }
-  
+
   .table-wrap { overflow-x: auto; padding: 10px; }
   table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
   th { background: #f8f9fa; padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6; }
   td { padding: 8px 10px; border-bottom: 1px solid #eee; }
 
-  /* ---- Semantic Colors ---- */
-  .eta-ok { color: #28a745; font-weight: bold; }
-  .eta-warn { color: #fd7e14; font-weight: bold; }
+  .eta-ok    { color: #28a745; font-weight: bold; }
+  .eta-warn  { color: #fd7e14; font-weight: bold; }
   .eta-alert { color: #dc3545; font-weight: bold; }
 
-  .disc-hi { background: #fff3f3; color: #dc3545; font-weight: bold; padding: 2px 4px; border-radius: 3px; }
+  .vessel-link { color: inherit; text-decoration: none; }
+  .vessel-link:hover { text-decoration: underline; color: #1565C0; }
+
+  .vessel-marker { font-size: 20px; line-height: 1; display: block; transform-origin: center; }
 </style>
 </head>
 <body>
@@ -62,6 +70,7 @@
   <div class="header-title">🚢 NAVI APERTE — Port Monitor</div>
   <div class="header-right">
     <span style="font-size:0.8rem; opacity:0.7;">👁 {{ page_views }} visite</span>
+    <button class="btn-pos" id="btn-pos" onclick="loadPositions()">📍 Posizioni Live</button>
     <button class="btn-refresh" onclick="refreshAll()">🔄 Aggiorna Tutto</button>
     <a href="/logout" style="color: white; text-decoration: none; font-size: 0.9rem;">Logout</a>
   </div>
@@ -102,28 +111,23 @@ const PORT_COORDS = {
   NAPOLI: [40.841, 14.268], CONATECO: [40.843, 14.285], SALERNO: [40.692, 14.771]
 };
 
-const markers = {};
+// Porto markers (fissi)
 for (const key in PORT_COORDS) {
-  markers[key] = L.circleMarker(PORT_COORDS[key], { radius: 8, color: '#002B5C', fillOpacity: 0.8 }).addTo(map);
+  L.circleMarker(PORT_COORDS[key], { radius: 8, color: '#002B5C', fillColor: '#002B5C', fillOpacity: 0.8 })
+    .bindTooltip(key.replace(/_/g,' '), {permanent: false})
+    .addTo(map);
 }
 
-async function refreshPort(key) {
-  const body = document.getElementById('body-' + key);
-  body.innerHTML = '<div style="padding:20px; text-align:center;">Aggiornamento...</div>';
-  try {
-    const res = await fetch('/refresh/' + key);
-    const data = await res.json();
-    renderTable(key, data.result);
-  } catch (e) {
-    body.innerHTML = '<div style="padding:20px; color:red;">Errore!</div>';
-  }
-}
+// Layer per posizioni AIS (dinamico)
+const vesselLayer = L.layerGroup().addTo(map);
+
+// Raccolta nomi navi per AISHub
+const allVesselNames = new Set();
 
 function semClass(s) {
   if (!s) return '';
-  let t = s.trim().replace(' - ', ' ');
+  let t = s.trim();
   t = t.replace(/^(\d{2})\/(\d{2})\/(\d{4})/, '$3-$2-$1');
-  t = t.replace(/^(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1');
   t = t.replace(' ', 'T');
   const d = new Date(t);
   if (isNaN(d)) return '';
@@ -163,11 +167,12 @@ function renderTable(key, result) {
     return;
   }
 
-  // Raccogli tutti i campi presenti nei dati, nell'ordine preferito
+  // Raccogli nomi per AISHub
+  rows.forEach(r => { if (r.nave) allVesselNames.add(r.nave.trim()); });
+
   const present = new Set();
   rows.forEach(r => Object.keys(r).forEach(k => { if (!SKIP_FIELDS.has(k)) present.add(k); }));
   const fields = FIELD_ORDER.filter(f => present.has(f));
-  // Aggiungi eventuali campi sconosciuti non in FIELD_ORDER
   present.forEach(f => { if (!FIELD_ORDER.includes(f)) fields.push(f); });
 
   let html = '<div style="overflow-x:auto"><table><thead><tr>'
@@ -175,17 +180,17 @@ function renderTable(key, result) {
 
   rows.forEach(r => {
     const isNew = r.is_new;
-    const rowStyle = isNew ? ' style="background:#f0fff4"' : '';
-    html += `<tr${rowStyle}>`;
-    fields.forEach((f, i) => {
+    html += `<tr${isNew ? ' style="background:#f0fff4"' : ''}>`;
+    fields.forEach(f => {
       const val = r[f];
       if (f === 'nave') {
         const badge = isNew ? ' <span style="background:#e8f5e9;color:#1b7e34;font-size:.65rem;padding:1px 5px;border-radius:3px;font-weight:bold">NEW</span>' : '';
-        html += `<td><b>${val || '—'}</b>${badge}</td>`;
+        const link = `https://www.vesselfinder.com/vessels/search?name=${encodeURIComponent(val||'')}`;
+        html += `<td><a href="${link}" target="_blank" class="vessel-link"><b>${val||'—'}</b></a>${badge}</td>`;
       } else if (DATE_FIELDS.has(f)) {
         html += dateCell(val);
       } else {
-        html += `<td style="color:#555">${val || '—'}</td>`;
+        html += `<td style="color:#555">${val||'—'}</td>`;
       }
     });
     html += '</tr>';
@@ -195,12 +200,76 @@ function renderTable(key, result) {
   body.innerHTML = html;
 }
 
+async function refreshPort(key) {
+  const body = document.getElementById('body-' + key);
+  body.innerHTML = '<div style="padding:20px; text-align:center;">Aggiornamento...</div>';
+  try {
+    const res = await fetch('/refresh/' + key);
+    const data = await res.json();
+    renderTable(key, data.result);
+  } catch (e) {
+    body.innerHTML = '<div style="padding:20px; color:red;">Errore!</div>';
+  }
+}
+
 function refreshAll() {
+  allVesselNames.clear();
   const keys = Object.keys(PORT_COORDS);
   keys.forEach(k => refreshPort(k));
 }
 
-// Avvio automatico
+// ---- AISHub positions ----
+async function loadPositions() {
+  const btn = document.getElementById('btn-pos');
+  if (allVesselNames.size === 0) {
+    alert('Carica prima i dati dei porti.');
+    return;
+  }
+  btn.textContent = '⏳ Caricamento...';
+  btn.classList.add('loading');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/vessel_positions', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({names: [...allVesselNames]})
+    });
+    const positions = await res.json();
+    vesselLayer.clearLayers();
+    if (positions.error) {
+      alert('Errore AISHub: ' + positions.message);
+      return;
+    }
+    let count = 0;
+    for (const [name, p] of Object.entries(positions)) {
+      if (!p.lat || !p.lon) continue;
+      const cog = p.cog || 0;
+      const icon = L.divIcon({
+        html: `<span class="vessel-marker" style="transform:rotate(${cog}deg)">🚢</span>`,
+        className: '',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+      });
+      const vfLink = `https://www.vesselfinder.com/vessels/search?name=${encodeURIComponent(p.name||name)}`;
+      L.marker([p.lat, p.lon], {icon})
+        .bindPopup(`<b>${p.name||name}</b><br>
+          SOG: ${p.sog != null ? p.sog+' kn' : '—'}<br>
+          COG: ${cog}°<br>
+          MMSI: ${p.mmsi||'—'}<br>
+          <a href="${vfLink}" target="_blank">Vedi su VesselFinder →</a>`)
+        .addTo(vesselLayer);
+      count++;
+    }
+    btn.textContent = `📍 ${count} navi in mappa`;
+  } catch(e) {
+    alert('Errore: ' + e);
+    btn.textContent = '📍 Posizioni Live';
+  } finally {
+    btn.classList.remove('loading');
+    btn.disabled = false;
+  }
+}
+
 window.onload = refreshAll;
 </script>
 </body>

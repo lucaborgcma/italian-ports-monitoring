@@ -27,6 +27,7 @@ HTTP_HEADERS = {
 SECRET_KEY = os.environ.get("SECRET_KEY", "cma-cgm-italy-secret-2026")
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASSWORD_HASH = generate_password_hash("cma2026")
+AISHUB_USERNAME = os.environ.get("AISHUB_USERNAME", "")
 
 # ... (Configurazione PORT_GROUPS e PORTS identica a prima) ...
 PORT_GROUPS = [
@@ -605,6 +606,57 @@ def index():
     ports_json = json.dumps([{"key": p["key"], "name": p["name"], "code": p["code"]} for p in PORTS])
     groups = [{**g, "ports": [{p["key"]: p for p in PORTS}[k] for k in g["keys"] if k in {p["key"]: p for p in PORTS}]} for g in PORT_GROUPS]
     return render_template("index.html", port_groups=groups, ports_json=ports_json, page_views=_page_views)
+
+@app.route('/vessel_positions', methods=['POST'])
+@login_required
+def vessel_positions():
+    if not AISHUB_USERNAME:
+        return jsonify({"error": True, "message": "AISHUB_USERNAME non configurato"})
+    names_req = request.json.get("names", []) if request.is_json else []
+    names = {n.upper().strip() for n in names_req if n}
+    if not names:
+        return jsonify({})
+    # Acque italiane + Adriatico + Tirreno
+    url = (f"https://data.aishub.net/ws.php?username={AISHUB_USERNAME}"
+           f"&format=1&output=json&compress=0"
+           f"&latmin=36&latmax=46&lonmin=6&lonmax=22")
+    try:
+        r = requests.get(url, timeout=20)
+        payload = r.json()
+    except Exception as e:
+        log.error(f"AISHub: {e}")
+        return jsonify({"error": True, "message": str(e)})
+    # AISHub format 1: [{ERROR:false}, [{MMSI:..., NAME:..., LATITUDE:..., ...}, ...]]
+    vessels = []
+    if isinstance(payload, list) and len(payload) >= 2 and isinstance(payload[1], list):
+        vessels = payload[1]
+    elif isinstance(payload, list) and payload and isinstance(payload[0], dict) and "MMSI" in payload[0]:
+        vessels = payload
+    positions = {}
+    for v in vessels:
+        vname = (v.get("NAME") or "").upper().strip()
+        if not vname:
+            continue
+        for name in names:
+            if name == vname or name in vname or vname in name:
+                positions[name] = {
+                    "lat":     v.get("LATITUDE"),
+                    "lon":     v.get("LONGITUDE"),
+                    "sog":     v.get("SOG"),
+                    "cog":     v.get("COG"),
+                    "heading": v.get("HEADING"),
+                    "mmsi":    v.get("MMSI"),
+                    "name":    v.get("NAME"),
+                }
+                break
+    log.info(f"AISHub: {len(vessels)} navi in area, {len(positions)} match")
+    return jsonify(positions)
+
+@app.route('/logout')
+def logout():
+    from flask_login import logout_user
+    logout_user()
+    return redirect(url_for('login'))
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
