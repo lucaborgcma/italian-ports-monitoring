@@ -586,7 +586,7 @@ def login():
     if request.method == 'POST':
         if request.form.get('username') == ADMIN_USER and request.form.get('password') == 'cma2026':
             login_user(User(ADMIN_USER)); return redirect(url_for('index'))
-    return '<form method="post"><input name="username"><input type="password" name="password"><button>Login</button></form>'
+    return render_template('login.html')
 
 @app.route('/refresh/<key>')
 @login_required
