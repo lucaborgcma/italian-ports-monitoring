@@ -201,18 +201,6 @@ button[onclick*="refreshPort"]:hover {
   margin: 0 auto;
 }
 
-@media (min-width: 768px) {
-  .grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (min-width: 1200px) {
-  .grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
 /* ============================================
    PORT CARDS
    ============================================ */
