@@ -586,7 +586,62 @@ def login():
     if request.method == 'POST':
         if request.form.get('username') == ADMIN_USER and request.form.get('password') == 'cma2026':
             login_user(User(ADMIN_USER)); return redirect(url_for('index'))
-    return '<form method="post"><input name="username"><input type="password" name="password"><button>Login</button></form>'
+
+    error_html = ""
+    try:
+        flashed = session.get('_flashes', [])
+        if flashed and len(flashed) > 0:
+            error_html = f'<div class="error-msg">{flashed[0][1]}</div>'
+    except:
+        pass
+
+    html = f"""<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login — Navi Aperte CMA CGM</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+    body {{
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+    }}
+</style>
+</head>
+<body>
+
+<div class="login-card">
+    <div class="logo">
+        <span class="logo-icon">⛴️</span>
+        <span>CMA CGM</span>
+    </div>
+    <h1>Navi Aperte Dashboard</h1>
+
+    {error_html}
+
+    <form method="POST">
+        <div class="form-group">
+            <label for="username">User ID</label>
+            <input type="text" id="username" name="username" required autofocus>
+        </div>
+        <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required>
+        </div>
+        <button type="submit" class="btn-login">Login</button>
+    </form>
+
+    <div class="footer">
+        &copy; 2026 CMA CGM Italy - Terminal Monitoring
+    </div>
+</div>
+
+</body>
+</html>"""
+    return html
 
 @app.route('/refresh/<key>')
 @login_required
@@ -652,6 +707,10 @@ def vessel_positions():
     log.info(f"AISHub: {len(vessels)} navi in area, {len(positions)} match")
     return jsonify(positions)
 
+@app.route('/test-style')
+def test_style():
+    return render_template('test-style.html')
+
 @app.route('/logout')
 def logout():
     from flask_login import logout_user
@@ -659,4 +718,6 @@ def logout():
     return redirect(url_for('login'))
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    port = int(os.environ.get("PORT", 10000))
+    print(f"Server avviando sulla porta {port}")
+    app.run(host="0.0.0.0", port=port, debug=False)

@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git remote *)",
+      "Bash(git ls-remote *)",
+      "Bash(curl -s --max-time 15 -A \"Mozilla/5.0\" \"https://www.conateco.it/berth-forecast/\")",
+      "Bash(curl -s --max-time 15 -A \"Mozilla/5.0\" \"https://www.conateco.it/scripts/berth.js\")",
+      "Bash(curl -s --max-time 15 -A \"Mozilla/5.0\" \"https://api.conateco.it/ConatecoServicesApi/BerthForecast?stato=PRESENTI\")",
+      "Bash(curl -s --max-time 15 -A \"Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/120.0.0.0 Safari/537.36\" \"https://www.genoaterminal.com/gptPublicService/getvesselsfull\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(curl -s --max-time 10 -A \"Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/120.0.0.0 Safari/537.36\" \"https://www.vesselfinder.com/vessels/search?name=MSC+ARCHIMIDIS\")",
+      "Bash(curl -s --max-time 10 -A \"Mozilla/5.0\" \"https://www.vesselfinder.com/vessels/search?name=MSC+ARCHIMIDIS\")",
+      "Bash(grep -oE \"MMSI[^,\\\\\"]{0,30}|mmsi[^,\\\\\"]{0,30}\")",
+      "Bash(curl -s --max-time 10 \"https://www.marinetraffic.com/en/ais/index/search/all/keyword:MSC%20ARCHIMIDIS\")",
+      "Bash(curl -s --max-time 10 -A \"Mozilla/5.0\" -H \"Accept: application/json\" \"https://www.vesselfinder.com/api/pub/portcalls/search?name=MSC+ARCHIMIDIS\")",
+      "Bash(curl -s --max-time 10 -A \"Mozilla/5.0\" \"https://www.marinetraffic.com/en/reports?asset_type=vessels&columns=shipid,shipname,mmsi,imo,lat,lon,speed&quicksearch=MSC+ARCHIMIDIS\" -H \"X-Requested-With: XMLHttpRequest\")",
+      "Bash(curl -sI --max-time 10 \"https://www.vesselfinder.com/aismap?lat=42.5&lng=12.5&zoom=6&width=800&height=400\")",
+      "Bash(curl -sI --max-time 10 \"https://www.marinetraffic.com/en/ais/embed/zoom:6/centery:42.5/centerx:12.5/maptype:4/shownames:true/mmsi:0/shipid:0/fleet:/fleet_id:/vtypes:/showmenu:/remember:false\")",
+      "Bash(curl -sI --max-time 10 \"https://www.shipfinder.com/embed/?lat=42.5&lng=12.5&zoom=6\")"
+    ]
+  }
+}

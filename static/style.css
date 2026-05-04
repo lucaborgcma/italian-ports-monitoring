@@ -1,0 +1,546 @@
+/* ============================================
+   NAVI APERTE - Global Styles
+   ============================================ */
+
+:root {
+  --primary: #002B5C;
+  --primary-dark: #001F42;
+  --accent: #E87722;
+  --accent-light: #f5a75c;
+  --success: #28a745;
+  --warning: #fd7e14;
+  --danger: #dc3545;
+  --bg: #f0f2f5;
+  --bg-light: #fafbfc;
+  --white: #ffffff;
+  --text: #333;
+  --text-muted: #666;
+  --border: #e0e0e0;
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.15);
+  --transition: all 0.2s ease;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+/* ============================================
+   HEADER
+   ============================================ */
+
+.header {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  color: var(--white);
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  box-shadow: var(--shadow-md);
+}
+
+.header-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.header-right > span {
+  font-size: 0.8rem;
+  opacity: 0.8;
+  font-weight: 500;
+}
+
+/* ============================================
+   BUTTONS
+   ============================================ */
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  transition: var(--transition);
+  font-weight: 600;
+  border-radius: 6px;
+}
+
+.btn-refresh {
+  background: var(--accent);
+  color: var(--white);
+  padding: 10px 20px;
+  font-size: 0.9rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-refresh:hover {
+  background: #d66e0e;
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.btn-refresh:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-pos {
+  background: #1565C0;
+  color: var(--white);
+  padding: 10px 20px;
+  font-size: 0.9rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-pos:hover {
+  background: #0d47a1;
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.btn-pos.active {
+  background: #0d47a1;
+  box-shadow: var(--shadow-md);
+}
+
+.btn-pos:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+}
+
+a[href="/logout"] {
+  color: var(--white) !important;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-radius: 4px;
+  transition: var(--transition);
+}
+
+a[href="/logout"]:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Port refresh button */
+button[onclick*="refreshPort"] {
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--white);
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+button[onclick*="refreshPort"]:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* ============================================
+   MAP & AIS
+   ============================================ */
+
+.map-wrap {
+  max-width: 1440px;
+  margin: 24px auto 0;
+  padding: 0 20px;
+}
+
+#italy-map {
+  height: 420px;
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border);
+}
+
+#ais-wrap {
+  display: none;
+  margin-top: 12px;
+}
+
+#ais-wrap iframe {
+  width: 100%;
+  height: 480px;
+  border: none;
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border);
+}
+
+/* ============================================
+   GRID LAYOUT
+   ============================================ */
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+  padding: 20px;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+@media (min-width: 768px) {
+  .grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1200px) {
+  .grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* ============================================
+   PORT CARDS
+   ============================================ */
+
+.port-card {
+  background: var(--white);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border);
+  transition: var(--transition);
+}
+
+.port-card:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-4px);
+}
+
+.port-header {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  color: var(--white);
+  padding: 14px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.port-name {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+
+/* ============================================
+   TABLES
+   ============================================ */
+
+.table-wrap {
+  overflow-x: auto;
+  padding: 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+thead {
+  background: var(--bg-light);
+  border-bottom: 2px solid var(--border);
+}
+
+th {
+  padding: 12px 12px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--primary);
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.5px;
+}
+
+td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+tbody tr {
+  transition: var(--transition);
+}
+
+tbody tr:hover {
+  background: var(--bg-light);
+}
+
+tbody tr:nth-child(even) {
+  background: rgba(0, 43, 92, 0.02);
+}
+
+/* Highlight new rows */
+tr[style*="background:#f0fff4"] {
+  background: #f0fff4 !important;
+  border-left: 4px solid var(--success);
+}
+
+/* ============================================
+   ETA STATUS COLORS
+   ============================================ */
+
+.eta-ok {
+  color: var(--success);
+  font-weight: 700;
+}
+
+.eta-warn {
+  color: var(--warning);
+  font-weight: 700;
+}
+
+.eta-alert {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+/* ============================================
+   LINKS
+   ============================================ */
+
+.vessel-link {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 600;
+  transition: var(--transition);
+  border-bottom: 2px solid transparent;
+}
+
+.vessel-link:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  text-decoration: none;
+}
+
+/* ============================================
+   SECTION LABELS
+   ============================================ */
+
+.section-label {
+  max-width: 1440px;
+  margin: 32px auto 0;
+  padding: 0 20px;
+  font-weight: 700;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-size: 0.85rem;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--accent);
+}
+
+/* ============================================
+   LOADING & ERROR STATES
+   ============================================ */
+
+.loading-text {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.error-box {
+  padding: 12px;
+  color: var(--danger);
+  border-left: 4px solid var(--danger);
+  background: rgba(220, 53, 69, 0.05);
+  border-radius: 4px;
+  margin: 10px 0;
+}
+
+.empty-state {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ============================================
+   LOGIN PAGE
+   ============================================ */
+
+.login-card {
+  background: var(--white);
+  padding: 40px;
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+  border: 1px solid var(--border);
+}
+
+.logo {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.logo-icon {
+  color: var(--accent);
+}
+
+.login-card h1 {
+  font-size: 1.2rem;
+  margin-bottom: 24px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.form-group {
+  text-align: left;
+  margin-bottom: 20px;
+}
+
+label {
+  display: block;
+  font-size: 0.9rem;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 1rem;
+  transition: var(--transition);
+  background: var(--white);
+  color: var(--text);
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(0, 43, 92, 0.1);
+}
+
+.btn-login {
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  color: var(--white);
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-login:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.btn-login:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+}
+
+.error-msg {
+  background: rgba(220, 53, 69, 0.1);
+  color: var(--danger);
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  border-left: 4px solid var(--danger);
+}
+
+.footer {
+  margin-top: 30px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ============================================
+   RESPONSIVE
+   ============================================ */
+
+@media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+    gap: 12px;
+    text-align: center;
+  }
+
+  .header-title {
+    font-size: 1.1rem;
+  }
+
+  .header-right {
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .map-wrap {
+    padding: 0 12px;
+  }
+
+  #italy-map {
+    height: 300px;
+  }
+
+  .grid {
+    padding: 12px;
+    gap: 16px;
+  }
+
+  table {
+    font-size: 0.75rem;
+  }
+
+  th,
+  td {
+    padding: 8px;
+  }
+
+  .port-name {
+    font-size: 0.95rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
