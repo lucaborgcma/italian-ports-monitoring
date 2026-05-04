@@ -586,6 +586,8 @@ def login():
     if request.method == 'POST':
         if request.form.get('username') == ADMIN_USER and request.form.get('password') == 'cma2026':
             login_user(User(ADMIN_USER)); return redirect(url_for('index'))
+    log.info(f"Flask template_folder: {app.template_folder}")
+    log.info(f"Jinja env loader: {app.jinja_env.loader}")
     return render_template('login.html')
 
 @app.route('/refresh/<key>')
@@ -651,6 +653,10 @@ def vessel_positions():
                 break
     log.info(f"AISHub: {len(vessels)} navi in area, {len(positions)} match")
     return jsonify(positions)
+
+@app.route('/test-style')
+def test_style():
+    return render_template('test-style.html')
 
 @app.route('/logout')
 def logout():
