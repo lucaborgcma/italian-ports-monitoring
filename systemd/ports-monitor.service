@@ -1,0 +1,21 @@
+[Unit]
+Description=Italian Ports Monitoring - Flask App
+After=network.target
+
+[Service]
+Type=notify
+User=deploy
+Group=www-data
+WorkingDirectory=/home/deploy/app
+Environment="PATH=/home/deploy/app/venv/bin"
+Environment="SECRET_KEY=CAMBIA_QUESTO_VALORE_SEGRETO"
+Environment="ADMIN_USER=admin"
+Environment="ADMIN_PASSWORD=CAMBIA_QUESTA_PASSWORD"
+Environment="VIEWS_FILE=/home/deploy/app/port_views"
+Environment="PLAYWRIGHT_BROWSERS_PATH=/home/deploy/app/venv/.playwright-browsers"
+ExecStart=/home/deploy/app/venv/bin/gunicorn --bind 127.0.0.1:8000 --workers 2 --timeout 120 --access-logfile - --error-logfile - app:app
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
